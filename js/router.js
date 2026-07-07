@@ -1,0 +1,50 @@
+/* ============================================================
+   ROUTER — Hash router. Cada vista es un módulo independiente.
+   ============================================================ */
+import inicio       from './views/inicio.js';
+import clientes     from './views/clientes.js';
+import propietarios from './views/propietarios.js';
+import propiedades  from './views/propiedades.js';
+import alquileres   from './views/alquileres.js';
+import ventas       from './views/ventas.js';
+import agenda       from './views/agenda.js';
+import caja         from './views/caja.js';
+import temporales     from './views/temporales.js';
+import liquidaciones  from './views/liquidaciones.js';
+import administracion from './views/administracion.js';
+
+const RUTAS = { inicio, clientes, propietarios, propiedades, alquileres, ventas, agenda, caja, temporales, liquidaciones, administracion };
+
+let _cleanup = null;
+
+function parseHash() {
+  const raw = location.hash.replace(/^#\/?/, '');
+  const [ruta, ...rest] = raw.split('/');
+  return { ruta: ruta || 'inicio', param: rest.join('/') || null };
+}
+
+async function resolver() {
+  const root = document.getElementById('viewRoot');
+  const { ruta, param } = parseHash();
+  const view = RUTAS[ruta] || inicio;
+
+  if (typeof _cleanup === 'function') { try { _cleanup(); } catch {} _cleanup = null; }
+  root.innerHTML = '';
+  root.scrollTop = 0;
+  document.querySelector('.view-scroll').scrollTop = 0;
+
+  try {
+    _cleanup = await view(root, param) || null;
+  } catch (err) {
+    console.error(err);
+    root.innerHTML = `<div class="view"><div class="empty"><h3>Error al cargar la vista</h3><p>${err.message}</p></div></div>`;
+  }
+}
+
+export function navegar(ruta) { location.hash = `#/${ruta}`; }
+
+export function initRouter() {
+  window.addEventListener('hashchange', resolver);
+  if (!location.hash) location.hash = '#/inicio';
+  else resolver();
+}

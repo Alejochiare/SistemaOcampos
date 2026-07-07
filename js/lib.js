@@ -1,0 +1,246 @@
+/* ============================================================
+   LIB — Utilidades centralizadas (DOM, Fechas, Charts)
+   ============================================================ */
+
+// ============ DOM UTILS ============
+export const $ = (sel, ctx = document) => ctx.querySelector(sel);
+export const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+
+export function el(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+
+export function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+export function uid(prefix = 'id') {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function debounce(fn, ms = 250) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+export function fmtMoneda(monto, moneda = 'USD') {
+  if (monto == null || monto === '') return '—';
+  const n = Number(monto);
+  const opts = { style: 'currency', currency: moneda, maximumFractionDigits: 0 };
+  try { return new Intl.NumberFormat('es-AR', opts).format(n); }
+  catch { return `${moneda} ${n.toLocaleString('es-AR')}`; }
+}
+
+export function fmtNum(n) {
+  return Number(n || 0).toLocaleString('es-AR');
+}
+
+export function iniciales(nombre = '') {
+  return nombre.trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?';
+}
+
+export function colorDe(str = '') {
+  const colores = ['#0f7d83','#7c3aed','#2563eb','#d97706','#16a34a','#dc2626','#0891b2','#db2777'];
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return colores[Math.abs(h) % colores.length];
+}
+
+export function descargar(contenido, nombre, tipo = 'text/plain') {
+  const blob = (contenido instanceof Blob) ? contenido : new Blob([contenido], { type: tipo });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function exportarCSV(filas, nombre = 'export.csv') {
+  if (!filas.length) return;
+  const cols = Object.keys(filas[0]);
+  const escCsv = (v) => {
+    const s = String(v ?? '').replace(/"/g, '""');
+    return /[",\n;]/.test(s) ? `"${s}"` : s;
+  };
+  const sep = ';';
+  const csv = [cols.join(sep), ...filas.map(f => cols.map(c => escCsv(f[c])).join(sep))].join('\n');
+  descargar('﻿' + csv, nombre, 'text/csv;charset=utf-8;');
+}
+
+// ============ DATE UTILS ============
+export const hoy = () => new Date();
+
+export function parseISO(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+export function toISO(d) {
+  const x = (d instanceof Date) ? d : new Date(d);
+  return x.toISOString().slice(0, 10);
+}
+
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const MESES_LARGO = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const DIAS = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+export const nombreMes = (i) => MESES_LARGO[i];
+export const nombreDia = (i) => DIAS[i];
+
+export function fmtFecha(d) {
+  const x = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(x)) return '—';
+  return `${String(x.getDate()).padStart(2,'0')} ${MESES[x.getMonth()]} ${x.getFullYear()}`;
+}
+
+export function fmtFechaCorta(d) {
+  if (!d) return '—';
+  // Parsear como fecha local para evitar desfasaje UTC
+  const s = (d instanceof Date) ? d.toISOString().slice(0,10) : String(d).slice(0,10);
+  const [y, m, dd] = s.split('-');
+  if (!y || !m || !dd) return '—';
+  return `${dd}/${m}`;
+}
+
+export function fmtHora(d) {
+  const x = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(x)) return '';
+  return x.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+}
+
+export function diasEntre(a, b = new Date()) {
+  const da = new Date(a), db = new Date(b);
+  da.setHours(0,0,0,0); db.setHours(0,0,0,0);
+  return Math.round((db - da) / 86400000);
+}
+
+export function relativo(d) {
+  const dias = diasEntre(d, new Date());
+  if (dias === 0) return 'hoy';
+  if (dias === 1) return 'ayer';
+  if (dias === -1) return 'mañana';
+  if (dias > 1) return `hace ${dias} días`;
+  return `en ${Math.abs(dias)} días`;
+}
+
+export function esMismoDia(a, b) {
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+}
+
+export function esHoy(d) { return esMismoDia(d, new Date()); }
+
+export function sumarDias(d, n) {
+  const x = new Date(d); x.setDate(x.getDate() + n); return x;
+}
+
+export function matrizMes(anio, mes) {
+  const primero = new Date(anio, mes, 1);
+  const inicio = new Date(primero);
+  inicio.setDate(1 - primero.getDay());
+  const celdas = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(inicio);
+    d.setDate(inicio.getDate() + i);
+    celdas.push(d);
+  }
+  return celdas;
+}
+
+// ============ CHARTS UTILS ============
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function baseColors() {
+  return {
+    brand: cssVar('--brand-500') || '#0f7d83',
+    brand2: cssVar('--brand-300') || '#5fb3b7',
+    accent: cssVar('--accent-500') || '#f5a623',
+    grid: cssVar('--border') || '#e0e0e0',
+    text: cssVar('--text-soft') || '#637070',
+  };
+}
+
+const _instances = new Map();
+
+function destroyIfExists(canvas) {
+  const prev = _instances.get(canvas);
+  if (prev) { prev.destroy(); _instances.delete(canvas); }
+}
+
+function commonOpts(c) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: c.text, font: { family: 'Manrope', size: 12 }, usePointStyle: true, boxWidth: 8, padding: 16 } },
+      tooltip: {
+        backgroundColor: cssVar('--surface'), titleColor: cssVar('--text'), bodyColor: cssVar('--text-soft'),
+        borderColor: c.grid, borderWidth: 1, padding: 10, cornerRadius: 8, displayColors: true, usePointStyle: true,
+      },
+    },
+  };
+}
+
+export function lineChart(canvas, labels, dataset, { label = '', area = true } = {}) {
+  if (!window.Chart) return;
+  destroyIfExists(canvas);
+  const c = baseColors();
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height || 240);
+  grad.addColorStop(0, c.brand + '55');
+  grad.addColorStop(1, c.brand + '00');
+  const inst = new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets: [{ label, data: dataset, borderColor: c.brand, backgroundColor: area ? grad : 'transparent', fill: area, tension: .4, borderWidth: 3, pointRadius: 3, pointBackgroundColor: c.brand, pointHoverRadius: 5 }] },
+    options: { ...commonOpts(c),
+      plugins: { ...commonOpts(c).plugins, legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: c.text, font: { family: 'Manrope' } } },
+        y: { grid: { color: c.grid }, ticks: { color: c.text, font: { family: 'Manrope' }, precision: 0 }, beginAtZero: true },
+      },
+    },
+  });
+  _instances.set(canvas, inst); return inst;
+}
+
+export function barChart(canvas, labels, dataset, { label = '', horizontal = false, colors } = {}) {
+  if (!window.Chart) return;
+  destroyIfExists(canvas);
+  const c = baseColors();
+  const bg = colors || labels.map((_, i) => i % 2 ? c.brand2 : c.brand);
+  const inst = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ label, data: dataset, backgroundColor: bg, borderRadius: 8, borderSkipped: false, maxBarThickness: 42 }] },
+    options: { ...commonOpts(c), indexAxis: horizontal ? 'y' : 'x',
+      plugins: { ...commonOpts(c).plugins, legend: { display: false } },
+      scales: {
+        x: { grid: { display: !horizontal, color: c.grid }, ticks: { color: c.text, font: { family: 'Manrope' } } },
+        y: { grid: { display: horizontal, color: c.grid }, ticks: { color: c.text, font: { family: 'Manrope' }, precision: 0 }, beginAtZero: true },
+      },
+    },
+  });
+  _instances.set(canvas, inst); return inst;
+}
+
+export function doughnutChart(canvas, labels, dataset, palette) {
+  if (!window.Chart) return;
+  destroyIfExists(canvas);
+  const c = baseColors();
+  const pal = palette || ['#0f7d83','#5fb3b7','#f5a623','#7c3aed','#2563eb','#16a34a','#dc2626','#0891b2','#db2777','#94a3b8'];
+  const inst = new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: dataset, backgroundColor: pal, borderColor: cssVar('--surface'), borderWidth: 3, hoverOffset: 6 }] },
+    options: { ...commonOpts(c), cutout: '64%',
+      plugins: { ...commonOpts(c).plugins, legend: { position: 'right', labels: { ...commonOpts(c).plugins.legend.labels } } },
+    },
+  });
+  _instances.set(canvas, inst); return inst;
+}
+
+export function destroyAll() { _instances.forEach(i => i.destroy()); _instances.clear(); }

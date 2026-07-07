@@ -1,0 +1,395 @@
+/* ============================================================
+   VISTA · Liquidaciones — pagos a propietarios
+   ============================================================ */
+import { getState, actions, subscribe } from '../store.js';
+import { icon } from '../config.js';
+import { esc } from '../lib.js';
+import { openModal } from '../components/modal.js';
+import { toast } from '../components/toast.js';
+import { imprimirLiquidacion } from '../imprimir.js';
+
+function fmtFecha(s) {
+  if (!s) return '—';
+  const [y, m, d] = String(s).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+function mesLabel(s) {
+  if (!s) return '—';
+  const [y, m] = s.split('-');
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return `${MESES[+m - 1]} ${y}`;
+}
+function fmt$(n) { return Number(n || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }); }
+
+/* Detecta cobros pagados que aún no tienen liquidación registrada */
+function cobrosALiquidar(state) {
+  const { alquileres, liquidaciones, clientes, propietarios, propiedades } = state;
+  const liqIds = new Set((liquidaciones || []).map(l => l.cobroId).filter(Boolean));
+  const pendientes = [];
+
+  alquileres.forEach(a => {
+    (a.cobros || []).forEach(c => {
+      if (!c.pagado || !c.monto) return;
+      if (liqIds.has(c.id)) return; // ya liquidado
+      const inq  = clientes.find(x => x.id === a.inquilinoId);
+      const own  = propietarios.find(x => x.id === a.propietarioId);
+      const prop = propiedades.find(x => x.id === a.propiedadId);
+      pendientes.push({ alq: a, cobro: c, inq, own, prop });
+    });
+  });
+
+  // Ordenar por mes más antiguo primero
+  pendientes.sort((a, b) => (a.cobro.mes || '').localeCompare(b.cobro.mes || ''));
+  return pendientes;
+}
+
+export default function liquidaciones(root) {
+  root.innerHTML = `<div class="view" id="vLiq"></div>`;
+  let filtro = 'pendientes'; // pendientes | historial
+
+  const render = () => pintar(root.querySelector('#vLiq'), filtro);
+  render();
+  const unsub = subscribe(render);
+
+  root.querySelector('#vLiq').addEventListener('click', async e => {
+    const pill = e.target.closest('[data-filtro]');
+    if (pill) { filtro = pill.dataset.filtro; render(); return; }
+
+    // Liquidar un cobro pendiente
+    const btnLiq = e.target.closest('[data-liq-cobro]');
+    if (btnLiq) {
+      const alqId   = btnLiq.dataset.liqAlq;
+      const cobroId = btnLiq.dataset.liqCobro;
+      const state   = getState();
+      const alq     = state.alquileres.find(a => a.id === alqId);
+      const cobro   = (alq?.cobros || []).find(c => c.id === cobroId);
+      if (alq && cobro) abrirFormLiquidacion({ alq, cobro }, render);
+      return;
+    }
+
+    // Acciones sobre liquidaciones ya registradas
+    const card = e.target.closest('[data-liq-id]');
+    if (!card) return;
+    const id = card.dataset.liqId;
+
+    if (e.target.closest('[data-pdf]'))      { generarPDF(id); return; }
+    if (e.target.closest('[data-eliminar]')) {
+      if (confirm('¿Eliminar esta liquidación?')) {
+        await actions.deleteLiquidacion(id);
+        toast('Liquidación eliminada');
+      }
+      return;
+    }
+  });
+
+  return unsub;
+}
+
+function pintar(el, filtro) {
+  const state = getState();
+  const { liquidaciones: list, clientes, propietarios, propiedades, alquileres } = state;
+  const pendientes = cobrosALiquidar(state);
+  const historial  = (list || []).map(l => {
+    const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
+    const prop = propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
+    const own  = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
+    const inq  = clientes.find(c => c.id === alq.inquilinoId) || {};
+    return { ...l, _alq: alq, _prop: prop, _own: own, _inq: inq };
+  }).sort((a, b) => (b.fechaPago || '').localeCompare(a.fechaPago || ''));
+
+  const totalPend = pendientes.reduce((s, p) => s + (p.cobro.monto || 0), 0);
+
+  el.innerHTML = `
+    <div class="view-head">
+      <div>
+        <h1 class="view-title">Liquidaciones</h1>
+        <p class="view-sub">Pagos a propietarios · ${pendientes.length} por liquidar · ${fmt$(totalPend)} pendiente</p>
+      </div>
+    </div>
+
+    <!-- Pills -->
+    <div style="display:flex;gap:.5rem;margin-bottom:1.25rem">
+      ${[
+        { id:'pendientes', label:'Por liquidar', count: pendientes.length, danger: pendientes.length > 0 },
+        { id:'historial',  label:'Historial',    count: historial.length },
+      ].map(p => {
+        const activo = filtro === p.id;
+        const color  = p.danger ? 'var(--danger)' : 'var(--primary)';
+        return `<button data-filtro="${p.id}" style="
+          padding:.35rem .9rem;border-radius:999px;font-size:.8rem;font-weight:600;cursor:pointer;border:none;
+          background:${activo ? color : 'var(--surface-2)'};
+          color:${activo ? '#fff' : (p.danger ? 'var(--danger)' : 'var(--text-soft)')};
+          transition:all .15s">
+          ${p.label}${p.count ? ` (${p.count})` : ''}
+        </button>`;
+      }).join('')}
+    </div>
+
+    ${filtro === 'pendientes' ? renderPendientes(pendientes) : renderHistorial(historial)}
+  `;
+}
+
+function renderPendientes(pendientes) {
+  if (!pendientes.length) return `
+    <div class="card" style="padding:2rem 1.5rem;text-align:center;color:var(--text-soft)">
+      <div style="font-size:2rem;margin-bottom:.5rem">✅</div>
+      <div style="font-weight:600;margin-bottom:.25rem">Todo liquidado</div>
+      <div style="font-size:.82rem;color:var(--text-faint)">No hay cobros de inquilinos pendientes de liquidar al propietario</div>
+    </div>`;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:.6rem">
+      ${pendientes.map(p => `
+        <div class="card" style="padding:1rem 1.25rem;display:flex;align-items:center;gap:1rem;border-left:3px solid var(--warning)">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
+              <span style="font-weight:700">${esc(p.own?.nombre || '—')}</span>
+              <span class="badge badge-warning" style="font-size:.72rem">${mesLabel(p.cobro.mes)}</span>
+            </div>
+            <div style="font-size:.82rem;color:var(--text-soft)">
+              ${esc(p.prop?.direccion || '—')}${p.prop?.ciudad ? ' · ' + esc(p.prop.ciudad) : ''}
+              · Inquilino: ${esc(p.inq?.nombre || '—')}
+            </div>
+            <div style="font-size:.82rem;margin-top:.25rem">
+              Cobrado el ${fmtFecha(p.cobro.fechaPago)} · <strong>${fmt$(p.cobro.monto)}</strong>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" data-liq-cobro="${p.cobro.id}" data-liq-alq="${p.alq.id}">
+            Liquidar →
+          </button>
+        </div>`).join('')}
+    </div>`;
+}
+
+function renderHistorial(historial) {
+  if (!historial.length) return `
+    <div class="card" style="padding:2rem 1.5rem;text-align:center;color:var(--text-soft)">
+      <div style="font-size:2rem;margin-bottom:.5rem">📄</div>
+      <div style="font-weight:600">Sin historial aún</div>
+    </div>`;
+
+  return `
+    <div style="display:flex;flex-direction:column;gap:.6rem">
+      ${historial.map(l => {
+        const hon     = l.montoHonorarios || Math.round((l.montoAlquiler || 0) * (l.pctHonorarios || 0) / 100);
+        const descTot = (l.descuentos || []).reduce((s, d) => s + (Number(d.monto) || 0), 0);
+        return `
+        <div class="card" data-liq-id="${l.id}" style="padding:1rem 1.25rem">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
+                <span style="font-weight:700">${esc(l._own?.nombre || '—')}</span>
+                <span class="badge badge-success">Liquidado</span>
+                ${l.mes ? `<span class="badge badge-neutral">${mesLabel(l.mes)}</span>` : ''}
+              </div>
+              <div style="font-size:.82rem;color:var(--text-soft);margin-bottom:.4rem">
+                ${esc(l._prop?.direccion || '—')}${l._prop?.ciudad ? ' · ' + esc(l._prop.ciudad) : ''}
+              </div>
+              <div style="display:flex;gap:1.25rem;flex-wrap:wrap;font-size:.8rem">
+                <span><span style="color:var(--text-soft)">Alquiler: </span><strong>${fmt$(l.montoAlquiler)}</strong></span>
+                <span><span style="color:var(--text-soft)">Hon. (${l.pctHonorarios || 0}%): </span><strong style="color:var(--danger)">−${fmt$(hon)}</strong></span>
+                ${descTot ? `<span><span style="color:var(--text-soft)">Desc.: </span><strong style="color:var(--danger)">−${fmt$(descTot)}</strong></span>` : ''}
+                <span><span style="color:var(--text-soft)">Pagado: </span><strong style="color:var(--success)">${fmt$(l.totalPagar)}</strong></span>
+              </div>
+              <div style="font-size:.78rem;color:var(--text-faint);margin-top:.35rem">
+                ${fmtFecha(l.fechaPago)} · ${esc(l.formaPago || 'Efectivo')}
+                ${l.notas ? ' · ' + esc(l.notas) : ''}
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:.3rem;flex-shrink:0">
+              <button class="btn btn-sm btn-ghost" data-pdf="${l.id}">${icon('file')} PDF</button>
+              <button class="btn btn-xs btn-ghost" style="color:var(--danger)" data-eliminar="${l.id}">${icon('trash')}</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/* ── Generar PDF ── */
+function generarPDF(id) {
+  const { liquidaciones: list, alquileres, clientes, propietarios, propiedades } = getState();
+  const l    = (list || []).find(x => x.id === id);
+  if (!l) return;
+  const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
+  const inq  = clientes.find(c => c.id === alq.inquilinoId) || {};
+  const prop = propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
+  const own  = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
+  const cobroSint = { monto: l.montoAlquiler, mes: l.mes, fechaPago: l.fechaPago };
+  imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
+    pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo' });
+}
+
+/* ── Formulario liquidar (crear ya pagada) ── */
+export function abrirFormLiquidacion(pre, onDone) {
+  const { alquileres, clientes, propietarios, propiedades } = getState();
+  const alq   = pre?.alq  || {};
+  const cobro = pre?.cobro || {};
+  const own   = propietarios.find(p => p.id === alq.propietarioId) || {};
+  const prop  = propiedades.find(p => p.id === alq.propiedadId)    || {};
+  const inq   = clientes.find(c => c.id === alq.inquilinoId)       || {};
+  const monto = cobro.monto || alq.montoActual || alq.montoInicial || 0;
+  const pctDef = alq.pctHonorarios ?? alq.comision ?? 10;
+  const hoy   = new Date().toISOString().slice(0, 10);
+  const METODOS = ['Efectivo','Transferencia','Cheque','Otro'];
+
+  let descIdx = 0;
+
+  openModal({
+    title: 'Liquidar al propietario',
+    size: 'lg',
+    bodyHTML: `
+      <form id="liqForm">
+        <!-- Info del cobro -->
+        <div style="background:var(--surface-2);border-radius:var(--r-md);padding:.85rem 1rem;margin-bottom:1.25rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem">
+          <div>
+            <div style="font-size:.72rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">Cobro a liquidar</div>
+            <div style="font-weight:700">${esc(own?.nombre || '—')}</div>
+            <div style="font-size:.82rem;color:var(--text-soft)">${esc(prop?.direccion || '—')} · ${mesLabel(cobro.mes)}</div>
+            <div style="font-size:.78rem;color:var(--text-faint)">Inquilino: ${esc(inq?.nombre || '—')} · Cobrado el ${fmtFecha(cobro.fechaPago)}</div>
+          </div>
+          <div style="font-size:1.4rem;font-weight:900">${fmt$(monto)}</div>
+        </div>
+
+        <h3 class="form-section-title">Honorarios de la inmobiliaria</h3>
+        <div class="form-grid" style="margin-bottom:1.1rem">
+          <div class="form-group">
+            <label>% Honorarios</label>
+            <input name="pctHonorarios" id="liqPct" type="number" min="0" max="100" step="0.5" value="${pctDef}">
+          </div>
+          <div class="form-group">
+            <label>Monto honorarios $</label>
+            <input id="liqMontoHon" type="number" readonly style="background:var(--surface-2);font-weight:700">
+          </div>
+          <div class="form-group">
+            <label style="color:var(--success);font-weight:700">Total a pagar al propietario $</label>
+            <input name="totalPagar" id="liqTotal" type="number" style="font-size:1.1rem;font-weight:800;color:var(--success)">
+          </div>
+        </div>
+
+        <h3 class="form-section-title">Descuentos / deducciones</h3>
+        <div id="descBlk" style="margin-bottom:.5rem"></div>
+        <button type="button" id="btnAddDesc" class="btn btn-sm btn-ghost" style="margin-bottom:1.25rem">${icon('plus')} Agregar descuento</button>
+
+        <h3 class="form-section-title">Datos del pago</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Fecha de pago <span class="req">*</span></label>
+            <input name="fechaPago" type="date" value="${hoy}">
+          </div>
+          <div class="form-group">
+            <label>Forma de pago</label>
+            <select name="formaPago">
+              ${METODOS.map(m => `<option value="${m}">${m}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group full">
+            <label>Notas</label>
+            <input name="notas" placeholder="Observaciones opcionales">
+          </div>
+        </div>
+      </form>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
+                 <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
+                 <button class="btn btn-primary" id="btnGuardarPDF">Guardar y generar PDF</button>`,
+    onMount(ctx) {
+      const q = (sel) => ctx.overlay.querySelector(sel);
+
+      const recalcular = () => {
+        const pct  = Number(q('#liqPct').value) || 0;
+        const hon  = Math.round(monto * pct / 100);
+        const desc = [...ctx.overlay.querySelectorAll('[name^="desc_monto"]')]
+          .reduce((s, i) => s + (Number(i.value) || 0), 0);
+        q('#liqMontoHon').value = hon;
+        q('#liqTotal').value    = Math.max(0, monto - hon - desc);
+      };
+      recalcular();
+
+      q('#liqPct').addEventListener('input', recalcular);
+
+      const addDescRow = () => {
+        const blk = q('#descBlk');
+        const idx = descIdx++;
+        const div = document.createElement('div');
+        div.className = 'desc-row form-grid';
+        div.style.cssText = 'align-items:end;gap:.5rem;margin-bottom:.5rem';
+        div.innerHTML = `
+          <div class="form-group" style="flex:2;margin:0">
+            <label style="font-size:.75rem">Concepto</label>
+            <input name="desc_concepto_${idx}" placeholder="Ej. Reparación caño">
+          </div>
+          <div class="form-group" style="flex:1;margin:0">
+            <label style="font-size:.75rem">Monto $</label>
+            <input name="desc_monto_${idx}" type="number" min="0">
+          </div>
+          <button type="button" class="btn btn-xs btn-ghost" style="color:var(--danger);margin-bottom:.1rem" data-rm>${icon('trash')}</button>`;
+        blk.appendChild(div);
+        div.querySelector('[data-rm]').addEventListener('click', () => { div.remove(); recalcular(); });
+        div.querySelector(`[name="desc_monto_${idx}"]`).addEventListener('input', recalcular);
+      };
+
+      q('#btnAddDesc').addEventListener('click', addDescRow);
+
+      const guardar = async (conPDF) => {
+        const f = q('#liqForm');
+        if (!f.fechaPago.value) { toast('Indicá la fecha de pago', { tipo: 'warning' }); return; }
+
+        const descuentos = [...ctx.overlay.querySelectorAll('.desc-row')].map((row, i) => ({
+          concepto: row.querySelector('[name^="desc_concepto"]')?.value || '',
+          monto:    Number(row.querySelector('[name^="desc_monto"]')?.value) || 0,
+        })).filter(d => d.concepto && d.monto);
+
+        const data = {
+          alquilerId:     alq.id,
+          propiedadId:    alq.propiedadId,
+          propietarioId:  alq.propietarioId,
+          cobroId:        cobro.id,
+          mes:            cobro.mes,
+          montoAlquiler:  monto,
+          pctHonorarios:  Number(f.pctHonorarios.value) || 0,
+          montoHonorarios:Number(q('#liqMontoHon').value) || 0,
+          totalPagar:     Number(f.totalPagar.value) || 0,
+          descuentos,
+          estado:    'pagada',
+          fechaPago: f.fechaPago.value,
+          formaPago: f.formaPago.value,
+          notas:     f.notas.value || null,
+        };
+
+        // Guardar % en el contrato para la próxima
+        if (alq.id && data.pctHonorarios !== (alq.pctHonorarios ?? alq.comision)) {
+          await actions.updateAlquiler(alq.id, { pctHonorarios: data.pctHonorarios });
+        }
+
+        const liq = await actions.createLiquidacion(data);
+        toast('Liquidación registrada');
+        ctx.close();
+        onDone?.();
+
+        if (conPDF) {
+          setTimeout(() => {
+            const { liquidaciones: list, alquileres: alqs, clientes, propietarios, propiedades } = getState();
+            // Buscar la recién creada
+            const l    = (list || []).find(x => x.cobroId === cobro.id);
+            if (!l) return;
+            const a2   = alqs.find(x => x.id === l.alquilerId) || {};
+            const cobroSint = { monto: l.montoAlquiler, mes: l.mes, fechaPago: l.fechaPago };
+            imprimirLiquidacion({
+              alq: a2,
+              cobro: cobroSint,
+              inquilino: clientes.find(c => c.id === a2.inquilinoId) || {},
+              propiedad: propiedades.find(p => p.id === l.propiedadId) || {},
+              propietario: propietarios.find(p => p.id === l.propietarioId) || {},
+              pctHonorarios: l.pctHonorarios || 0,
+              descuentos: l.descuentos || [],
+              formaPago: l.formaPago || 'Efectivo',
+            });
+          }, 300);
+        }
+      };
+
+      q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
+      q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
+    },
+  });
+}
