@@ -8,6 +8,14 @@ import { navegar } from '../router.js';
 import { openPropForm } from './_forms.js';
 import { openModal } from '../components/modal.js';
 
+function operacionesProp(p) {
+  const ops = [];
+  if (p.habilitadaAlquiler || p.precioAlquiler) ops.push('Alquiler');
+  if (p.habilitadaTemporal) ops.push('Alquiler temporario');
+  if (p.precioVenta) ops.push('Venta');
+  return ops;
+}
+
 function resumenMatchCliente(c) {
   const b = c.busca || {};
   const partes = [];
@@ -98,7 +106,10 @@ function pintarLista(el, filtro, estadoFiltro) {
               <button class="btn btn-xs btn-edit-prop" data-id="${p.id}" title="Editar" onclick="event.stopPropagation()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)">${icon('edit')}</button>
             </div>
             <div class="prop-card-body">
-              <div class="prop-tipo">${esc(p.tipo || 'Propiedad')}</div>
+              <div class="prop-tipo" style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+                <span>${esc(p.tipo || 'Propiedad')}</span>
+                ${operacionesProp(p).map(op => `<span class="badge badge-neutral" style="font-size:.65rem;padding:.15rem .5rem">${op}</span>`).join('')}
+              </div>
               <div class="prop-dir">${esc(p.direccion || '—')}</div>
               ${(p.barrio || p.ciudad) ? `<div class="text-xs text-soft" style="margin-top:.15rem">${[p.barrio, p.ciudad].filter(Boolean).map(esc).join(', ')}</div>` : ''}
               ${p.propietarioId ? `<div class="text-xs text-soft" style="margin-top:.3rem;display:flex;align-items:center;gap:.3rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> ${esc(sel.nombrePropietario(p.propietarioId))}</div>` : ''}

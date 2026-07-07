@@ -41,15 +41,16 @@
 
   /* Hero */
   .hero { position: relative; min-height: 82vh; background-size: cover; background-position: center; display: flex; align-items: center; overflow: hidden; }
-  .hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(160deg, rgba(36,28,21,.25) 0%, rgba(36,28,21,.55) 60%, rgba(36,28,21,.88) 100%); }
-  .hero-content { position: relative; z-index: 1; color: #fff; padding: 2rem 1.75rem; width: 100%; margin: 0 auto; max-width: 780px; }
-  .hero-eyebrow { display: inline-flex; align-items: center; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.3); color: #f3ead9; padding: .4rem 1rem; border-radius: 999px; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 1.4rem; }
-  .hero-content h1 { font-size: clamp(2.4rem, 5.5vw, 4rem); margin: 0 0 1rem; font-weight: 600; line-height: 1.06; }
-  .hero-content p { font-size: 1.15rem; opacity: .92; margin: 0 0 2rem; max-width: 520px; }
-  .hero-actions { display: flex; gap: .9rem; flex-wrap: wrap; }
-  .btn-primary { display: inline-flex; align-items: center; gap: .5rem; background: var(--clay); color: #fff; padding: .9rem 1.8rem; border-radius: 999px; font-weight: 700; box-shadow: 0 14px 28px -10px rgba(180,83,50,.7); }
-  .btn-primary:hover { background: var(--clay-dark); }
-  .btn-outline { display: inline-flex; align-items: center; gap: .5rem; border: 1.5px solid rgba(255,255,255,.7); color: #fff; padding: .9rem 1.8rem; border-radius: 999px; font-weight: 700; }
+  .hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20,15,10,.55) 0%, rgba(28,21,14,.6) 45%, rgba(36,28,21,.82) 100%); }
+  .hero-content { position: relative; z-index: 1; color: #fff; padding: 2rem 1.75rem; width: 100%; margin: 0 auto; max-width: 700px; text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .hero-eyebrow { display: inline-flex; align-items: center; background: rgba(255,255,255,.12); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.35); color: #f3ead9; padding: .4rem 1.1rem; border-radius: 999px; font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 1.5rem; }
+  .hero-content h1 { font-size: clamp(2.4rem, 5.5vw, 3.7rem); margin: 0 0 1.1rem; font-weight: 600; line-height: 1.1; text-shadow: 0 4px 24px rgba(0,0,0,.35); }
+  .hero-content p { font-size: 1.1rem; opacity: .94; margin: 0 0 2.2rem; max-width: 480px; line-height: 1.6; }
+  .hero-actions { display: flex; gap: .9rem; flex-wrap: wrap; justify-content: center; }
+  .btn-primary { display: inline-flex; align-items: center; gap: .5rem; background: var(--clay); color: #fff; padding: .9rem 1.8rem; border-radius: 999px; font-weight: 700; box-shadow: 0 14px 28px -10px rgba(180,83,50,.7); transition: transform .2s, box-shadow .2s, background .2s; }
+  .btn-primary:hover { background: var(--clay-dark); transform: translateY(-2px); box-shadow: 0 18px 34px -10px rgba(180,83,50,.8); }
+  .btn-outline { display: inline-flex; align-items: center; gap: .5rem; background: rgba(255,255,255,.06); backdrop-filter: blur(6px); border: 1.5px solid rgba(255,255,255,.75); color: #fff; padding: .9rem 1.8rem; border-radius: 999px; font-weight: 700; transition: transform .2s, background .2s, color .2s; }
+  .btn-outline:hover { background: #fff; color: var(--ink); transform: translateY(-2px); }
 
   /* Sections */
   .section { padding: 4.5rem 0; }
@@ -79,13 +80,17 @@
   /* Footer */
   .site-footer { background: var(--ink); color: #d8cfc2; padding: 4rem 0 2rem; margin-top: 3rem; }
   .site-footer h4 { color: #fff; margin: 0 0 .9rem; font-size: 1.05rem; }
-  .footer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .footer-grid { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 3rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(255,255,255,.1); }
+  .footer-grid > div { flex: 1 1 300px; max-width: 380px; }
+  .footer-grid > div:last-child { max-width: 320px; }
   .footer-logo { display: flex; align-items: center; gap: .8rem; margin-bottom: .9rem; }
   .footer-logo img { height: 60px; width: auto; max-width: 140px; object-fit: contain; }
   .footer-bottom { padding-top: 1.5rem; text-align: center; font-size: .8rem; color: #8a7f70; }
 
   /* WhatsApp float */
-  .wa-float { position: fixed; bottom: 1.6rem; right: 1.6rem; z-index: 40; background: linear-gradient(135deg,#25d366,#128c4a); color: #fff; width: 62px; height: 62px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 12px 28px -6px rgba(18,140,74,.6); font-size: 1.7rem; border: none; cursor: pointer; }
+  .wa-float { position: fixed; bottom: 1.6rem; right: 1.6rem; z-index: 40; background: linear-gradient(135deg,#25d366,#128c4a); color: #fff; width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 12px 28px -6px rgba(18,140,74,.6); border: none; cursor: pointer; transition: transform .2s, box-shadow .2s; }
+  .wa-float:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 16px 34px -6px rgba(18,140,74,.7); }
+  .wa-float svg { width: 30px; height: 30px; fill: #fff; }
 
   /* Property detail "page" section */
   .detail-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 50; overflow-y: auto; display: none; }
@@ -163,19 +168,48 @@
 
   /* Nosotros */
   .nosotros-panel { background: rgba(243,234,217,.95); border: 1px solid var(--line); border-radius: calc(var(--r) + 4px); padding: 2rem; box-shadow: 0 26px 55px -38px rgba(36,28,21,.25); margin-bottom: 2.4rem; }
-  .nosotros-intro { max-width: 700px; color: var(--ink-soft); font-size: 1.04rem; line-height: 1.8; margin: 0; }
-  .valores-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.4rem; }
-  .valor-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1.6rem; transition: transform .25s, box-shadow .25s, border-color .25s; }
-  .valor-card:hover { transform: translateY(-5px); box-shadow: 0 22px 40px -24px rgba(36,28,21,.18); border-color: rgba(180,83,50,.22); }
-  .valor-card .valor-icon { display: none; }
-  .valor-card h4 { margin: 0 0 .65rem; font-size: 1.12rem; }
-  .valor-card p { margin: 0; color: var(--ink-soft); font-size: .95rem; line-height: 1.75; }
-  .valor-card.mv { background: #fff9f0; border-color: rgba(180,83,50,.15); }
+  .nosotros-intro { max-width: 700px; color: var(--ink-soft); font-size: 1.04rem; line-height: 1.8; margin: 0 0 1.8rem; }
+  .nosotros-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.2rem; margin: 0; }
+  .nosotros-stats div { display: flex; flex-direction: column; gap: .25rem; }
+  .nosotros-stats strong { font-size: 1.6rem; color: var(--clay); font-weight: 800; font-family: 'Fraunces', serif; }
+  .nosotros-stats span { font-size: .85rem; color: var(--ink-soft); font-weight: 500; }
+  .mv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.4rem; margin-bottom: 1.4rem; }
+  .valores-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.4rem; }
+  .valor-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 1.8rem; transition: transform .25s, box-shadow .25s, border-color .25s; text-align: center; }
+  .valor-card:hover { transform: translateY(-8px); box-shadow: 0 26px 50px -28px rgba(36,28,21,.25); border-color: rgba(180,83,50,.35); }
+  .valor-card .valor-icon { display: flex; align-items: center; justify-content: center; width: 60px; height: 60px; margin: 0 auto 1rem; background: rgba(180,83,50,.08); border-radius: 14px; color: var(--clay); flex-shrink: 0; }
+  .valor-card .valor-icon svg { width: 32px; height: 32px; stroke: var(--clay); }
+  .valor-card h4 { margin: 0 0 .65rem; font-size: 1.12rem; color: var(--ink); }
+  .valor-card p { margin: 0; color: var(--ink-soft); font-size: .92rem; line-height: 1.7; }
+  .valor-card.mv { background: #fff9f0; border-color: rgba(180,83,50,.15); padding: 2.2rem 1.8rem; }
+  .valor-card.mv .valor-icon { background: rgba(180,83,50,.12); width: 68px; height: 68px; }
+  .valor-card.mv .valor-icon svg { width: 36px; height: 36px; }
+  .valor-card.mv h4 { font-size: 1.28rem; }
+  @media (max-width: 860px) {
+    .valores-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 520px) {
+    .valores-grid { grid-template-columns: 1fr; }
+  }
 
-  /* Footer extras */
+  /* Metodología */
+  .metodologia-intro { max-width: 720px; margin-bottom: 2.5rem; }
+  .metodologia-intro .eyebrow { color: var(--clay); font-weight: 700; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: .5rem; }
+  .metodologia-intro h2 { font-size: 2rem; margin: 0 0 .8rem; }
+  .metodologia-intro p { margin: 0; color: var(--ink-soft); font-size: 1rem; line-height: 1.7; }
+  .metodologia-intro h2 em { font-style: italic; color: var(--clay); }
+  .procesos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; }
+  .proceso-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 2rem 1.6rem; transition: transform .25s, box-shadow .25s, border-color .25s; position: relative; }
+  .proceso-card:hover { transform: translateY(-6px); box-shadow: 0 24px 48px -24px rgba(36,28,21,.2); border-color: rgba(180,83,50,.25); }
+  .proceso-num { font-size: 3.2rem; font-weight: 800; font-family: 'Fraunces', serif; color: rgba(180,83,50,.12); line-height: 1; margin-bottom: .8rem; }
+  .proceso-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; background: rgba(180,83,50,.08); border-radius: 12px; margin-bottom: 1.2rem; }
+  .proceso-icon svg { width: 28px; height: 28px; stroke: var(--clay); }
+  .proceso-card h4 { margin: 0 0 .8rem; font-size: 1.1rem; color: var(--ink); }
+  .proceso-card p { margin: 0; color: var(--ink-soft); font-size: .92rem; line-height: 1.7; }
   .footer-social { display: flex; gap: .7rem; margin-top: 1rem; }
-  .footer-social a { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; font-size: 1.05rem; transition: background .15s, transform .15s; }
+  .footer-social a { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,.08); display: flex; align-items: center; justify-content: center; transition: background .15s, transform .15s; }
   .footer-social a:hover { background: var(--clay); transform: translateY(-2px); }
+  .footer-social a svg { width: 18px; height: 18px; fill: #fff; }
   .footer-contact-line { display: flex; align-items: center; gap: .55rem; font-size: .9rem; margin: 0 0 .6rem; }
 </style>
 </head>
@@ -243,39 +277,55 @@
     </div>
   </div>
 
-  <div class="valores-grid">
+  <div class="mv-grid">
     <div class="valor-card mv">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+      </div>
       <h4>Misión</h4>
       <p>Satisfacer y superar con responsabilidad y cordialidad las necesidades inmobiliarias de quienes confían en nosotros.</p>
     </div>
     <div class="valor-card mv">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
       <h4>Visión</h4>
       <p>Ser la opción preferida por ofrecer atención transparente, cercana y resultados duraderos.</p>
     </div>
+  </div>
+
+  <div class="valores-grid">
     <div class="valor-card">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 6v6l4 2.4" stroke-linecap="round"/></svg>
+      </div>
       <h4>Excelencia</h4>
       <p>Entregamos servicios de calidad con atención profesional en cada paso de la operación.</p>
     </div>
     <div class="valor-card">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
       <h4>Responsabilidad</h4>
       <p>Trabajamos con compromiso y honestidad para que cada acuerdo sea claro y confiable.</p>
     </div>
     <div class="valor-card">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </div>
       <h4>Atención</h4>
       <p>Escuchamos y damos respuesta rápida a las necesidades de cada cliente.</p>
     </div>
     <div class="valor-card">
-      <div class="valor-icon"></div>
+      <div class="valor-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </div>
       <h4>Respeto</h4>
       <p>Tratamos cada consulta con cuidado, transparencia y profesionalismo.</p>
     </div>
   </div>
 </section>
+
 
 <section class="cta-tasacion">
   <div class="container">
@@ -357,8 +407,12 @@
         <div class="footer-logo"><img id="footerLogo" src="img/logo/logo.png" alt="Logo"><h4 id="footerNombre" style="margin:0">Sunset Bienes Raíces</h4></div>
         <p id="footerDescripcion" style="font-size:.9rem;line-height:1.6"></p>
         <div class="footer-social">
-          <a href="https://www.facebook.com/sunsetmiramar/" target="_blank" rel="noopener" aria-label="Facebook">FB</a>
-          <a href="https://www.instagram.com/sunsetmiramar/" target="_blank" rel="noopener" aria-label="Instagram">IG</a>
+          <a href="https://www.facebook.com/sunsetmiramar/" target="_blank" rel="noopener" aria-label="Facebook">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.89h2.78l-.44 2.91h-2.34V22c4.78-.76 8.44-4.92 8.44-9.94z"/></svg>
+          </a>
+          <a href="https://www.instagram.com/sunsetmiramar/" target="_blank" rel="noopener" aria-label="Instagram">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.31-1.46.72-2.13 1.38C1.35 2.68.94 3.35.63 4.14c-.3.76-.5 1.64-.56 2.91C.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.31.79.72 1.46 1.38 2.13.67.66 1.34 1.07 2.13 1.38.76.3 1.64.5 2.91.56 1.28.06 1.69.07 4.95.07s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.31 1.46-.72 2.13-1.38.66-.67 1.07-1.34 1.38-2.13.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.31-.79-.72-1.46-1.38-2.13C21.32 1.35 20.65.94 19.86.63c-.76-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0zm0 5.84A6.16 6.16 0 1 0 18.16 12 6.16 6.16 0 0 0 12 5.84zm0 10.16A4 4 0 1 1 16 12a4 4 0 0 1-4 4zm6.4-10.4a1.44 1.44 0 1 1-1.44-1.44 1.44 1.44 0 0 1 1.44 1.44z"/></svg>
+          </a>
         </div>
       </div>
       <div>
@@ -373,7 +427,9 @@
   </div>
 </footer>
 
-<button class="wa-float" id="btnWhatsappFloat">Chat</button>
+<button class="wa-float" id="btnWhatsappFloat" aria-label="Chatear por WhatsApp">
+  <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16.004 0C7.163 0 0 7.163 0 16.004c0 2.823.738 5.474 2.03 7.777L.06 32l8.4-1.94a15.93 15.93 0 0 0 7.544 1.917h.007C24.85 31.977 32 24.815 32 15.973 32 7.132 24.845 0 16.004 0zm0 29.02h-.006a13 13 0 0 1-6.63-1.815l-.476-.283-4.985 1.152 1.177-4.86-.31-.5A12.94 12.94 0 0 1 2.98 15.99c0-7.19 5.85-13.04 13.028-13.04 3.48 0 6.75 1.356 9.21 3.82a12.94 12.94 0 0 1 3.815 9.207c0 7.19-5.85 13.04-13.03 13.04zm7.15-9.77c-.392-.196-2.316-1.144-2.676-1.276-.36-.13-.622-.196-.884.196s-1.014 1.276-1.243 1.538-.458.294-.85.098c-.392-.196-1.656-.61-3.155-1.947-1.166-1.04-1.955-2.325-2.184-2.717-.228-.392-.024-.604.172-.8.176-.176.392-.458.588-.687.196-.228.26-.392.392-.653.13-.262.065-.49-.033-.687-.098-.196-.884-2.13-1.212-2.917-.32-.767-.645-.663-.884-.675-.228-.01-.49-.012-.752-.012s-.687.098-1.047.49c-.36.392-1.373 1.343-1.373 3.276s1.406 3.8 1.602 4.062c.196.262 2.766 4.223 6.702 5.922.936.404 1.667.646 2.237.826.94.299 1.795.257 2.472.156.754-.113 2.316-.947 2.643-1.86.327-.914.327-1.696.229-1.86-.098-.163-.36-.262-.752-.458z"/></svg>
+</button>
 
 <!-- Sección de detalle de propiedad (se abre como "página" aparte) -->
 <div class="detail-overlay" id="detailOverlay">

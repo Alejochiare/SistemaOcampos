@@ -463,20 +463,13 @@ export function openPropForm(prop = null, onDone) {
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Fotos</h3>
-        <div id="fotosPreview" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
-          ${fotosGuardadas.map((f,i) => `
-            <div style="position:relative;width:90px;height:70px;border-radius:var(--r-sm);overflow:hidden;background:var(--surface-2)">
-              <img src="${esc(f)}" style="width:100%;height:100%;object-fit:cover">
-              <button type="button" data-del-foto="${i}"
-                style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:.65rem;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
-            </div>`).join('')}
-        </div>
+        <div id="fotosPreview" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem"></div>
         <label style="display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;font-size:.82rem;color:var(--primary);border:1.5px dashed var(--primary);padding:.5rem .9rem;border-radius:var(--r-md)">
           + Agregar fotos
           <input id="inputFotos" type="file" accept="image/*" multiple style="display:none">
         </label>
         <input type="hidden" name="fotosJSON" value="${esc(JSON.stringify(fotosGuardadas))}">
-        <p class="text-xs text-soft" style="margin-top:.4rem">Las fotos se suben automáticamente al sitio web.</p>
+        <p class="text-xs text-soft" style="margin-top:.4rem">Las fotos se suben automáticamente al sitio web. La primera (marcada como "Portada") es la que se muestra como foto principal.</p>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Sitio web</h3>
         <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.9rem">
@@ -522,14 +515,26 @@ export function openPropForm(prop = null, onDone) {
 
       const renderFotos = () => {
         preview.innerHTML = fotos.map((f, i) => `
-          <div style="position:relative;width:90px;height:70px;border-radius:var(--r-sm);overflow:hidden;background:var(--surface-2)">
+          <div style="position:relative;width:90px;height:70px;border-radius:var(--r-sm);overflow:hidden;background:var(--surface-2);${i===0?'outline:2px solid var(--primary);outline-offset:2px':''}">
             <img src="${esc(f)}" style="width:100%;height:100%;object-fit:cover">
+            ${i===0
+              ? `<span style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.65);color:#fff;font-size:.6rem;text-align:center;padding:.15rem 0">Portada</span>`
+              : `<button type="button" data-portada-foto="${i}" title="Usar como portada"
+                  style="position:absolute;bottom:2px;left:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:.65rem;display:flex;align-items:center;justify-content:center;line-height:1">★</button>`}
             <button type="button" data-del-foto="${i}"
               style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;cursor:pointer;font-size:.65rem;display:flex;align-items:center;justify-content:center;line-height:1">✕</button>
           </div>`).join('');
         fotosJSON.value = JSON.stringify(fotos);
         preview.querySelectorAll('[data-del-foto]').forEach(btn => {
           btn.addEventListener('click', () => { fotos.splice(Number(btn.dataset.delFoto), 1); renderFotos(); });
+        });
+        preview.querySelectorAll('[data-portada-foto]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const i = Number(btn.dataset.portadaFoto);
+            const [chosen] = fotos.splice(i, 1);
+            fotos.unshift(chosen);
+            renderFotos();
+          });
         });
       };
 
