@@ -425,15 +425,28 @@ export function openPropForm(prop = null, onDone) {
             <input name="pisoUnidad" value="${esc(prop.pisoUnidad||'')}" placeholder="Ej. 2° B"></div>
         </div>
 
-        <h3 class="form-section-title" style="margin-top:1.5rem">Tipo de uso</h3>
-        <div style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.25rem">
-          <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.9rem">
-            <input type="checkbox" name="habilitadaAlquiler" value="1" ${prop.habilitadaAlquiler!==false?'checked':''} style="width:16px;height:16px">
-            Habilitada para alquiler mensual
+        <h3 class="form-section-title" style="margin-top:1.5rem">¿Qué operaciones quieres hacer con esta propiedad?</h3>
+        <div style="display:flex;flex-direction:column;gap:.6rem;margin-bottom:1rem;background:var(--surface-2);padding:1rem;border-radius:var(--r-md);border:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:.8rem;cursor:pointer;font-size:.92rem;font-weight:500">
+            <input type="checkbox" name="habilitadaAlquiler" value="1" ${prop.habilitadaAlquiler!==false?'checked':''} style="width:18px;height:18px;cursor:pointer">
+            <span>
+              <div style="font-weight:600;color:var(--text)">🔑 Alquilar por mes</div>
+              <small style="color:var(--text-soft);display:block;margin-top:.15rem">Alquileres a largo plazo</small>
+            </span>
           </label>
-          <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.9rem">
-            <input type="checkbox" name="habilitadaTemporal" value="1" ${prop.habilitadaTemporal?'checked':''} style="width:16px;height:16px">
-            Habilitada para alquiler temporal (por noche)
+          <label style="display:flex;align-items:center;gap:.8rem;cursor:pointer;font-size:.92rem;font-weight:500">
+            <input type="checkbox" name="habilitadaTemporal" value="1" ${prop.habilitadaTemporal?'checked':''} style="width:18px;height:18px;cursor:pointer">
+            <span>
+              <div style="font-weight:600;color:var(--text)">🏖️ Alquiler temporal</div>
+              <small style="color:var(--text-soft);display:block;margin-top:.15rem">Alquileres por noche/semana</small>
+            </span>
+          </label>
+          <label style="display:flex;align-items:center;gap:.8rem;cursor:pointer;font-size:.92rem;font-weight:500">
+            <input type="checkbox" name="habilitadaVenta" value="1" ${prop.habilitadaVenta?'checked':''} style="width:18px;height:18px;cursor:pointer">
+            <span>
+              <div style="font-weight:600;color:var(--text)">🏠 Vender</div>
+              <small style="color:var(--text-soft);display:block;margin-top:.15rem">Venta de la propiedad</small>
+            </span>
           </label>
         </div>
 
@@ -570,6 +583,7 @@ export function openPropForm(prop = null, onDone) {
         // Tipo de uso
         data.habilitadaAlquiler = !!ctx.overlay.querySelector('[name="habilitadaAlquiler"]')?.checked;
         data.habilitadaTemporal = !!ctx.overlay.querySelector('[name="habilitadaTemporal"]')?.checked;
+        data.habilitadaVenta = !!ctx.overlay.querySelector('[name="habilitadaVenta"]')?.checked;
         data.publicadoWeb = !!ctx.overlay.querySelector('[name="publicadoWeb"]')?.checked;
         // Fotos
         data.fotos = fotos;

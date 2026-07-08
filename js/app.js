@@ -14,11 +14,15 @@ import { initTopbar } from './components/topbar.js';
 import { initRouter } from './router.js';
 import { initNotifications } from './notifications.js';
 import { $ } from './lib.js';
+import { cargarDatosDemo } from './data.js';
 
 async function boot() {
   // Pantalla de carga mínima mientras se hidrata el estado
   const root = $('#viewRoot');
   if (root) root.innerHTML = '<div class="view"><div class="spinner"></div></div>';
+
+  // Cargar datos de demostración si la BD está vacía
+  await cargarDatosDemo();
 
   await initStore();   // hidrata leads/propiedades/tareas/usuarios
   initSidebar();          // navegación + badges en vivo

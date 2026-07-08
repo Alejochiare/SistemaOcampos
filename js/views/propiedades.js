@@ -10,9 +10,16 @@ import { openModal } from '../components/modal.js';
 
 function operacionesProp(p) {
   const ops = [];
+  
+  // No mostrar operaciones si la propiedad está en otro estado
+  if (p.estado === 'alquilada' || p.estado === 'vendida') {
+    return ops;
+  }
+  
+  // Si está disponible, mostrar qué puede hacerse
   if (p.habilitadaAlquiler || p.precioAlquiler) ops.push('Alquiler');
   if (p.habilitadaTemporal) ops.push('Alquiler temporario');
-  if (p.precioVenta) ops.push('Venta');
+  if (p.habilitadaVenta || p.precioVenta) ops.push('Venta');
   return ops;
 }
 
