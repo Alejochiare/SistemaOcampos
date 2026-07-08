@@ -5,8 +5,7 @@
    El orden importa:
    1) initStore()  carga la "base" (api/localStorage) al estado.
    2) initSidebar() + initTopbar() montan el chrome persistente
-      y se suscriben al store para mantenerse vivos.
-   3) initRouter() resuelve la vista según el hash actual.
+      y se suscriben al store para mantenerse vivos. s
    ============================================================ */
 import { initStore } from './store.js';
 import { initSidebar } from './components/sidebar.js';
