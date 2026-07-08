@@ -823,26 +823,13 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           </div>
         </div>
 
-        <!-- Método de pago -->
+        <!-- Forma de pago (una o varias líneas: efectivo + transferencia, etc.) -->
         <div style="margin-bottom:1.1rem">
-          <label style="font-size:.8rem;font-weight:600;color:var(--text-soft);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:.5rem">Método de pago</label>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap" id="metodosBtns">
-            ${METODOS.map(m => `
-              <button type="button" data-metodo="${m.id}" style="
-                padding:.4rem .85rem;border-radius:var(--r-full);font-size:.82rem;font-weight:600;cursor:pointer;
-                border:1.5px solid var(--border);background:var(--surface-2);color:var(--text);transition:all .15s">
-                ${m.icon} ${m.id}
-              </button>`).join('')}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+            <label style="font-size:.8rem;font-weight:600;color:var(--text-soft);text-transform:uppercase;letter-spacing:.05em">Forma de pago</label>
+            <button type="button" id="btnAddPago" class="btn btn-xs btn-ghost">${icon('plus')} Dividir pago</button>
           </div>
-          <input type="hidden" name="metodoPago" id="metodoPago" value="Efectivo">
-        </div>
-
-        <!-- Referencia (transferencia/cheque) -->
-        <div id="refBlk" style="margin-bottom:1rem;display:none">
-          <div class="form-group" style="margin:0">
-            <label>N° de referencia / CBU / banco</label>
-            <input name="referencia" placeholder="Ej: 0000234 · Banco Nación">
-          </div>
+          <div id="pagosBlk"></div>
         </div>
 
         <!-- Notas -->
@@ -853,36 +840,102 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveCobro">Registrar cobro</button>`,
     onMount(ctx) {
-      // Selección de método de pago
-      let metodoActivo = 'Efectivo';
-      const actualizarMetodo = (id) => {
-        metodoActivo = id;
-        ctx.overlay.querySelector('#metodoPago').value = id;
-        ctx.overlay.querySelectorAll('[data-metodo]').forEach(b => {
-          const activo = b.dataset.metodo === id;
-          b.style.background = activo ? 'var(--primary)' : 'var(--surface-2)';
-          b.style.color      = activo ? '#fff' : 'var(--text)';
-          b.style.borderColor= activo ? 'var(--primary)' : 'var(--border)';
-        });
-        // Mostrar campo referencia si aplica
-        const mostrarRef = ['Transferencia','Cheque'].includes(id);
-        ctx.overlay.querySelector('#refBlk').style.display = mostrarRef ? 'block' : 'none';
+      const ov = ctx.overlay;
+      const mostrarRef = (m) => ['Transferencia','Cheque'].includes(m);
+      let pagos = [{ metodoPago: 'Efectivo', monto: montoSugerido || '', referencia: '' }];
+
+      const actualizarResumen = () => {
+        const el = ov.querySelector('#pagosResumen');
+        if (!el) return;
+        const total = Number(ov.querySelector('#cobroForm').monto.value) || 0;
+        const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+        if (pagos.length > 1) {
+          const dif = Math.round((total - asignado) * 100) / 100;
+          el.textContent = `Asignado: $${asignado.toLocaleString('es-AR')} de $${total.toLocaleString('es-AR')}` +
+            (dif !== 0 ? ` · Faltan $${dif.toLocaleString('es-AR')}` : ' · ✓ Coincide');
+          el.style.color = dif === 0 ? 'var(--success)' : 'var(--warning)';
+        } else {
+          el.textContent = '';
+        }
       };
-      actualizarMetodo('Efectivo');
-      ctx.overlay.querySelectorAll('[data-metodo]').forEach(b => {
-        b.addEventListener('click', () => actualizarMetodo(b.dataset.metodo));
+
+      const renderPagos = () => {
+        const blk = ov.querySelector('#pagosBlk');
+        blk.innerHTML = pagos.map((p, i) => `
+          <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem;flex-wrap:wrap" data-pago-row="${i}">
+            <div class="form-group" style="margin:0;min-width:150px">
+              <label style="font-size:.72rem">Método</label>
+              <select data-f="metodoPago">
+                ${METODOS.map(m => `<option value="${m.id}" ${p.metodoPago === m.id ? 'selected' : ''}>${m.icon} ${m.id}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin:0;width:130px">
+              <label style="font-size:.72rem">Monto $</label>
+              <input type="number" min="0" data-f="monto" value="${p.monto}">
+            </div>
+            ${mostrarRef(p.metodoPago) ? `
+            <div class="form-group" style="margin:0;flex:1;min-width:160px">
+              <label style="font-size:.72rem">Referencia</label>
+              <input type="text" data-f="referencia" value="${esc(p.referencia || '')}" placeholder="Ej: 0000234 · Banco Nación">
+            </div>` : ''}
+            ${pagos.length > 1 ? `<button type="button" class="btn btn-xs btn-ghost" data-del-pago="${i}" style="color:var(--danger)">✕</button>` : ''}
+          </div>`).join('') + `<div id="pagosResumen" style="font-size:.78rem;margin-top:.2rem"></div>`;
+
+        blk.querySelectorAll('[data-pago-row]').forEach(row => {
+          const i = Number(row.dataset.pagoRow);
+          row.querySelector('[data-f="metodoPago"]').addEventListener('change', e => { pagos[i].metodoPago = e.target.value; renderPagos(); });
+          row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = e.target.value; actualizarResumen(); });
+          row.querySelector('[data-f="referencia"]')?.addEventListener('input', e => { pagos[i].referencia = e.target.value; });
+        });
+        blk.querySelectorAll('[data-del-pago]').forEach(btn => {
+          btn.addEventListener('click', () => { pagos.splice(Number(btn.dataset.delPago), 1); renderPagos(); });
+        });
+        actualizarResumen();
+      };
+
+      ov.querySelector('#btnAddPago').addEventListener('click', () => {
+        const total = Number(ov.querySelector('#cobroForm').monto.value) || 0;
+        const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+        const restante = Math.max(0, total - asignado);
+        const usados = pagos.map(p => p.metodoPago);
+        const siguiente = METODOS.find(m => !usados.includes(m.id))?.id || 'Transferencia';
+        pagos.push({ metodoPago: siguiente, monto: restante || '', referencia: '' });
+        renderPagos();
       });
 
-      $('#saveCobro', ctx.overlay).addEventListener('click', async () => {
-        const f = $('#cobroForm', ctx.overlay);
+      $('#cobroForm', ov).monto.addEventListener('input', actualizarResumen);
+
+      renderPagos();
+
+      $('#saveCobro', ov).addEventListener('click', async () => {
+        const f = $('#cobroForm', ov);
         if (!f.mes.value) { toast('Indicá el mes', { tipo: 'warning' }); return; }
+
+        const pagosValidos = pagos.filter(p => Number(p.monto) > 0)
+          .map(p => ({ metodoPago: p.metodoPago, monto: Number(p.monto), referencia: p.referencia || null }));
+        if (!pagosValidos.length) { toast('Indicá el monto de al menos una forma de pago', { tipo: 'warning' }); return; }
+
+        const totalMonto = f.monto.value ? Number(f.monto.value) : null;
+        if (pagosValidos.length > 1 && totalMonto != null) {
+          const suma = pagosValidos.reduce((s, p) => s + p.monto, 0);
+          if (Math.round(suma * 100) !== Math.round(totalMonto * 100)) {
+            toast('La suma de las formas de pago no coincide con el monto total', { tipo: 'warning' });
+            return;
+          }
+        }
+
+        const metodoResumen = pagosValidos.length > 1
+          ? pagosValidos.map(p => p.metodoPago).join(' + ')
+          : pagosValidos[0].metodoPago;
+
         const cobro = {
           mes:        f.mes.value,
-          monto:      f.monto.value ? Number(f.monto.value) : null,
+          monto:      totalMonto,
           fechaPago:  f.fechaPago.value || null,
           pagado:     f.pagado.checked,
-          metodoPago: metodoActivo,
-          referencia: f.referencia?.value || null,
+          metodoPago: metodoResumen,
+          referencia: pagosValidos.length === 1 ? pagosValidos[0].referencia : null,
+          pagos:      pagosValidos,
           nota:       f.nota.value || null,
         };
         await actions.addCobro(alq.id, cobro);

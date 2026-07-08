@@ -7,6 +7,7 @@ import { esc, fmtMoneda, fmtFechaCorta } from '../lib.js';
 import { navegar } from '../router.js';
 import { openAlquilerForm, openCobroForm } from './_forms.js';
 import { openModal } from '../components/modal.js';
+import { toast } from '../components/toast.js';
 import { imprimirRecibo, imprimirLiquidacion, getAgencia, setAgencia } from '../imprimir.js';
 import { abrirFormLiquidacion } from './liquidaciones.js';
 
@@ -758,10 +759,24 @@ function openAumentoModal(a) {
     ? 'https://www.indec.gob.ar/indec/web/Nivel4-Tema-3-5-31'
     : 'https://www.bcra.gob.ar/PublicacionesEstadisticas/Principales_variables.asp';
 
+  // Cuántos ajustes de este contrato ya deberían haberse aplicado según la
+  // frecuencia pactada (ej: contrato de 12 meses, ajuste c/4 meses → 3 pendientes).
+  // El usuario los va aplicando de a uno; este modal se reabre solo hasta ponerlo al día.
+  const ajInfo = sel.infoAjuste(a);
+  const numeroPeriodo = ajInfo ? ajInfo.applied + 1 : 1;
+  const totalPeriodos = ajInfo ? ajInfo.expected : 1;
+
   openModal({
-    title: 'Registrar aumento',
+    title: ajInfo && ajInfo.pendientes > 1 ? `Registrar aumento (período ${numeroPeriodo} de ${totalPeriodos})` : 'Registrar aumento',
     bodyHTML: `
       <div style="display:flex;flex-direction:column;gap:1.25rem">
+
+        ${ajInfo && ajInfo.pendientes > 1 ? `
+        <div style="padding:.75rem 1rem;background:color-mix(in srgb,var(--warning) 12%,transparent);border:1.5px solid var(--warning);border-radius:var(--r-md);font-size:.85rem">
+          Este contrato acumula <strong>${ajInfo.pendientes} ajustes sin aplicar</strong> (uno cada ${a.frecuenciaAjuste} meses).
+          Corresponde al período que vencía el <strong>${fmtFechaCorta(ajInfo.proxFecha)}</strong>.
+          Después de este quedarán <strong>${ajInfo.pendientes - 1}</strong> más por registrar.
+        </div>` : ''}
 
         ${esIndice ? `
         <div>
@@ -880,6 +895,17 @@ function openAumentoModal(a) {
         const notaAuto = nota || `Ajuste ${tipo} ${pctBase}%${pctExtra ? ` + ${pctExtra}% adicional` : ''}`;
         await actions.registrarAumento(a.id, _montoCalculado, notaAuto);
         close();
+
+        // Si todavía quedan ajustes de períodos anteriores sin aplicar, se
+        // reabre el modal automáticamente para el siguiente en vez de darlo por hecho.
+        const fresh = getState().alquileres.find(x => x.id === a.id);
+        const ajInfoFresh = fresh ? sel.infoAjuste(fresh) : null;
+        if (ajInfoFresh && ajInfoFresh.pendientes > 0) {
+          toast(`Ajuste registrado · quedan ${ajInfoFresh.pendientes} pendiente${ajInfoFresh.pendientes > 1 ? 's' : ''}`, { tipo: 'warning' });
+          setTimeout(() => openAumentoModal(fresh), 250);
+        } else {
+          toast('Contrato al día con los aumentos');
+        }
       });
     },
   });

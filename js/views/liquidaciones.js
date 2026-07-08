@@ -21,6 +21,98 @@ function mesLabel(s) {
 }
 function fmt$(n) { return Number(n || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }); }
 
+/* ── Forma de pago (una o varias líneas: efectivo + transferencia, etc.) ── */
+const METODOS_PAGO = [
+  { id: 'Efectivo', icon: '💵' },
+  { id: 'Transferencia', icon: '🏦' },
+  { id: 'Cheque', icon: '📄' },
+  { id: 'Otro', icon: '📝' },
+];
+
+function pagosBlockHTML() {
+  return `
+    <div class="form-group full">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+        <label style="margin:0">Forma de pago</label>
+        <button type="button" data-btn-add-pago class="btn btn-xs btn-ghost">${icon('plus')} Dividir pago</button>
+      </div>
+      <div data-pagos-blk></div>
+    </div>`;
+}
+
+/** Gestiona las líneas de pago dentro de un modal. `getTotal` debe devolver el total a pagar vigente. */
+function montarPagos(ctx, { getTotal }) {
+  const ov = ctx.overlay;
+  const mostrarRef = (m) => ['Transferencia', 'Cheque'].includes(m);
+  let pagos = [{ metodoPago: 'Efectivo', monto: getTotal(), referencia: '' }];
+
+  const resumen = () => {
+    const el = ov.querySelector('[data-pagos-resumen]');
+    if (!el) return;
+    const total = Number(getTotal()) || 0;
+    const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+    if (pagos.length > 1) {
+      const dif = Math.round((total - asignado) * 100) / 100;
+      el.textContent = `Asignado: ${fmt$(asignado)} de ${fmt$(total)}` + (dif !== 0 ? ` · Faltan ${fmt$(dif)}` : ' · ✓ Coincide');
+      el.style.color = dif === 0 ? 'var(--success)' : 'var(--warning)';
+    } else {
+      el.textContent = '';
+    }
+  };
+
+  const render = () => {
+    const blk = ov.querySelector('[data-pagos-blk]');
+    blk.innerHTML = pagos.map((p, i) => `
+      <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem;flex-wrap:wrap" data-pago-idx="${i}">
+        <div class="form-group" style="margin:0;min-width:150px">
+          <label style="font-size:.72rem">Método</label>
+          <select data-f="metodoPago">
+            ${METODOS_PAGO.map(m => `<option value="${m.id}" ${p.metodoPago === m.id ? 'selected' : ''}>${m.icon} ${m.id}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;width:130px">
+          <label style="font-size:.72rem">Monto $</label>
+          <input type="number" min="0" data-f="monto" value="${p.monto}">
+        </div>
+        ${mostrarRef(p.metodoPago) ? `
+        <div class="form-group" style="margin:0;flex:1;min-width:160px">
+          <label style="font-size:.72rem">Referencia</label>
+          <input type="text" data-f="referencia" value="${esc(p.referencia || '')}" placeholder="CBU / N° / banco">
+        </div>` : ''}
+        ${pagos.length > 1 ? `<button type="button" class="btn btn-xs btn-ghost" data-del-pago="${i}" style="color:var(--danger)">✕</button>` : ''}
+      </div>`).join('') + `<div data-pagos-resumen style="font-size:.78rem;margin-top:.2rem"></div>`;
+
+    blk.querySelectorAll('[data-pago-idx]').forEach(row => {
+      const i = Number(row.dataset.pagoIdx);
+      row.querySelector('[data-f="metodoPago"]').addEventListener('change', e => { pagos[i].metodoPago = e.target.value; render(); });
+      row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = e.target.value; resumen(); });
+      row.querySelector('[data-f="referencia"]')?.addEventListener('input', e => { pagos[i].referencia = e.target.value; });
+    });
+    blk.querySelectorAll('[data-del-pago]').forEach(btn => {
+      btn.addEventListener('click', () => { pagos.splice(Number(btn.dataset.delPago), 1); render(); });
+    });
+    resumen();
+  };
+
+  ov.querySelector('[data-btn-add-pago]').addEventListener('click', () => {
+    const total = Number(getTotal()) || 0;
+    const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+    const restante = Math.max(0, total - asignado);
+    const usados = pagos.map(p => p.metodoPago);
+    const siguiente = METODOS_PAGO.find(m => !usados.includes(m.id))?.id || 'Transferencia';
+    pagos.push({ metodoPago: siguiente, monto: restante || '', referencia: '' });
+    render();
+  });
+
+  render();
+
+  return {
+    getPagos: () => pagos.filter(p => Number(p.monto) > 0)
+      .map(p => ({ metodoPago: p.metodoPago, monto: Number(p.monto), referencia: p.referencia || null })),
+    refrescarTotal: resumen,
+  };
+}
+
 /* Detecta cobros pagados que aún no tienen liquidación registrada - AGRUPADOS POR PROPIETARIO (todas sus propiedades y meses pendientes juntos) */
 function cobrosALiquidar(state) {
   const { alquileres, liquidaciones, clientes, propietarios, propiedades } = state;
@@ -279,7 +371,8 @@ function generarPDF(id) {
   const own  = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
   const cobroSint = { monto: l.montoAlquiler, mes: l.mes, fechaPago: l.fechaPago };
   imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
-    pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo' });
+    pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo',
+    pagos: l.pagos || [] });
 }
 
 /* ── Formulario liquidar GRUPAL (múltiples propiedades de un propietario) ── */
@@ -292,7 +385,6 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
   const pctDef = 10; // porcentaje de comisión
   
   const hoy = new Date().toISOString().slice(0, 10);
-  const METODOS = ['Efectivo','Transferencia','Cheque','Otro'];
   const mesesLabelStr = grupo.meses.length === 1
     ? mesLabel(grupo.meses[0])
     : `${mesLabel(grupo.meses[0])} – ${mesLabel(grupo.meses[grupo.meses.length - 1])}`;
@@ -350,12 +442,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
             <label>Fecha de pago <span class="req">*</span></label>
             <input name="fechaPago" type="date" value="${hoy}">
           </div>
-          <div class="form-group">
-            <label>Forma de pago</label>
-            <select name="formaPago">
-              ${METODOS.map(m => `<option value="${m}">${m}</option>`).join('')}
-            </select>
-          </div>
+          ${pagosBlockHTML()}
           <div class="form-group full">
             <label>Notas</label>
             <input name="notas" placeholder="Observaciones opcionales">
@@ -367,6 +454,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
                  <button class="btn btn-primary" id="btnGuardarPDF">Guardar y generar PDF</button>`,
     onMount(ctx) {
       const q = (sel) => ctx.overlay.querySelector(sel);
+      let pagosCtl = null;
 
       const recalcular = () => {
         const pct  = Number(q('#liqPct').value) || 0;
@@ -376,6 +464,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         const total = totalMonto - hon - desc;
         q('#liqMontoHon').value = hon;
         q('#liqTotal').value = total;
+        pagosCtl?.refrescarTotal();
       };
 
       const renderDescs = () => {
@@ -415,6 +504,18 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
 
       q('#btnSoloGuardar').addEventListener('click', async () => {
         const form = q('#liqGrupalForm');
+        const totalPagar = Number(q('#liqTotal').value) || 0;
+
+        const pagos = pagosCtl.getPagos();
+        if (!pagos.length) { toast('Indicá la forma de pago', { tipo: 'warning' }); return; }
+        if (pagos.length > 1) {
+          const suma = pagos.reduce((s, p) => s + p.monto, 0);
+          if (Math.round(suma * 100) !== Math.round(totalPagar * 100)) {
+            toast('La suma de las formas de pago no coincide con el total a pagar', { tipo: 'warning' });
+            return;
+          }
+        }
+
         const fd = new FormData(form);
         const data = Object.fromEntries(fd.entries());
         data.propietarioId = grupo.propietarioId;
@@ -422,12 +523,14 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         data.mes = grupo.meses.length === 1 ? grupo.meses[0] : null;
         data.montoAlquiler = totalMonto;
         data.pctHonorarios = Number(data.pctHonorarios) || 0;
-        data.totalPagar = Number(q('#liqTotal').value) || 0;
+        data.totalPagar = totalPagar;
         data.descuentos = form.descuentos || [];
-        
+        data.pagos = pagos;
+        data.formaPago = pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago;
+
         // Guardar los IDs de cobros liquidados
         data.liquidadosCobros = grupo.cobros.map(item => item.cobro.id);
-        
+
         await actions.createLiquidacion(data);
         toast('Liquidación registrada');
         ctx.close();
@@ -441,6 +544,9 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
 
       recalcular();
       renderDescs();
+
+      pagosCtl = montarPagos(ctx, { getTotal: () => Number(q('#liqTotal').value) || 0 });
+      q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
     }
   });
 }
@@ -456,7 +562,6 @@ export function abrirFormLiquidacion(pre, onDone) {
   const monto = cobro.monto || alq.montoActual || alq.montoInicial || 0;
   const pctDef = alq.pctHonorarios ?? alq.comision ?? 10;
   const hoy   = new Date().toISOString().slice(0, 10);
-  const METODOS = ['Efectivo','Transferencia','Cheque','Otro'];
 
   let descIdx = 0;
 
@@ -502,12 +607,7 @@ export function abrirFormLiquidacion(pre, onDone) {
             <label>Fecha de pago <span class="req">*</span></label>
             <input name="fechaPago" type="date" value="${hoy}">
           </div>
-          <div class="form-group">
-            <label>Forma de pago</label>
-            <select name="formaPago">
-              ${METODOS.map(m => `<option value="${m}">${m}</option>`).join('')}
-            </select>
-          </div>
+          ${pagosBlockHTML()}
           <div class="form-group full">
             <label>Notas</label>
             <input name="notas" placeholder="Observaciones opcionales">
@@ -519,6 +619,7 @@ export function abrirFormLiquidacion(pre, onDone) {
                  <button class="btn btn-primary" id="btnGuardarPDF">Guardar y generar PDF</button>`,
     onMount(ctx) {
       const q = (sel) => ctx.overlay.querySelector(sel);
+      let pagosCtl = null;
 
       const recalcular = () => {
         const pct  = Number(q('#liqPct').value) || 0;
@@ -527,6 +628,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           .reduce((s, i) => s + (Number(i.value) || 0), 0);
         q('#liqMontoHon').value = hon;
         q('#liqTotal').value    = Math.max(0, monto - hon - desc);
+        pagosCtl?.refrescarTotal();
       };
       recalcular();
 
@@ -559,6 +661,17 @@ export function abrirFormLiquidacion(pre, onDone) {
         const f = q('#liqForm');
         if (!f.fechaPago.value) { toast('Indicá la fecha de pago', { tipo: 'warning' }); return; }
 
+        const totalPagar = Number(f.totalPagar.value) || 0;
+        const pagos = pagosCtl.getPagos();
+        if (!pagos.length) { toast('Indicá la forma de pago', { tipo: 'warning' }); return; }
+        if (pagos.length > 1) {
+          const suma = pagos.reduce((s, p) => s + p.monto, 0);
+          if (Math.round(suma * 100) !== Math.round(totalPagar * 100)) {
+            toast('La suma de las formas de pago no coincide con el total a pagar', { tipo: 'warning' });
+            return;
+          }
+        }
+
         const descuentos = [...ctx.overlay.querySelectorAll('.desc-row')].map((row, i) => ({
           concepto: row.querySelector('[name^="desc_concepto"]')?.value || '',
           monto:    Number(row.querySelector('[name^="desc_monto"]')?.value) || 0,
@@ -573,11 +686,12 @@ export function abrirFormLiquidacion(pre, onDone) {
           montoAlquiler:  monto,
           pctHonorarios:  Number(f.pctHonorarios.value) || 0,
           montoHonorarios:Number(q('#liqMontoHon').value) || 0,
-          totalPagar:     Number(f.totalPagar.value) || 0,
+          totalPagar,
           descuentos,
           estado:    'pagada',
           fechaPago: f.fechaPago.value,
-          formaPago: f.formaPago.value,
+          formaPago: pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago,
+          pagos,
           notas:     f.notas.value || null,
         };
 
@@ -608,6 +722,7 @@ export function abrirFormLiquidacion(pre, onDone) {
               pctHonorarios: l.pctHonorarios || 0,
               descuentos: l.descuentos || [],
               formaPago: l.formaPago || 'Efectivo',
+              pagos: l.pagos || [],
             });
           }, 300);
         }
@@ -615,6 +730,9 @@ export function abrirFormLiquidacion(pre, onDone) {
 
       q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
       q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
+
+      pagosCtl = montarPagos(ctx, { getTotal: () => Number(q('#liqTotal').value) || 0 });
+      q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
     },
   });
 }

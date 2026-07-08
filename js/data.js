@@ -73,6 +73,19 @@ function crearMovimientoCaja(db, data) {
   return mov;
 }
 
+/** Crea uno o varios movimientos de caja a partir de un pago que puede estar
+ *  dividido en varias líneas (ej: parte efectivo, parte transferencia). */
+function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, ...base }) {
+  const lineas = (pagos && pagos.length ? pagos : [{ metodoPago, monto, referencia }])
+    .filter(p => Number(p.monto || 0) > 0);
+  return lineas.map(p => crearMovimientoCaja(db, {
+    ...base,
+    monto: Number(p.monto || 0),
+    metodoPago: p.metodoPago,
+    nota: [p.referencia, nota].filter(Boolean).join(' · '),
+  }));
+}
+
 let _db = load();
 
 /* ============================================================
@@ -238,18 +251,21 @@ export const api = {
     if (c.pagado && Number(c.monto || 0) > 0) {
       const inq = _db.clientes.find(x => x.id === a.inquilinoId) || {};
       const prop = _db.propiedades.find(x => x.id === a.propiedadId) || {};
-      const mov = crearMovimientoCaja(_db, {
+      const movs = crearMovimientosPago(_db, {
+        pagos: c.pagos,
         tipo: 'ingreso',
         concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
         monto: Number(c.monto || 0),
         metodoPago: c.metodoPago,
-        nota: [c.referencia, c.nota].filter(Boolean).join(' · '),
+        referencia: c.referencia,
+        nota: c.nota,
         fecha: c.fechaPago || hoyISO(),
         origen: 'cobro-alquiler',
         refTipo: 'cobro',
         refId: c.id,
       });
-      c.cajaMovimientoId = mov.id;
+      c.cajaMovimientoIds = movs.map(m => m.id);
+      c.cajaMovimientoId = movs[0]?.id;
     }
     persist(_db);
     return delay(structuredClone(c));
@@ -264,18 +280,21 @@ export const api = {
       if (patch.pagado && !estabaPagado && Number(c.monto || 0) > 0 && !c.cajaMovimientoId) {
         const inq = _db.clientes.find(x => x.id === a.inquilinoId) || {};
         const prop = _db.propiedades.find(x => x.id === a.propiedadId) || {};
-        const mov = crearMovimientoCaja(_db, {
+        const movs = crearMovimientosPago(_db, {
+          pagos: c.pagos,
           tipo: 'ingreso',
           concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
           monto: Number(c.monto || 0),
           metodoPago: c.metodoPago,
-          nota: [c.referencia, c.nota].filter(Boolean).join(' · '),
+          referencia: c.referencia,
+          nota: c.nota,
           fecha: c.fechaPago || hoyISO(),
           origen: 'cobro-alquiler',
           refTipo: 'cobro',
           refId: c.id,
         });
-        c.cajaMovimientoId = mov.id;
+        c.cajaMovimientoIds = movs.map(m => m.id);
+        c.cajaMovimientoId = movs[0]?.id;
       }
       persist(_db);
     }
@@ -385,7 +404,8 @@ export const api = {
       const prop = _db.propiedades.find(x => x.id === l.propiedadId) || {};
       const own = _db.propietarios.find(x => x.id === l.propietarioId) || {};
       const periodoLbl = l.mes || (l.meses && l.meses.length ? (l.meses.length > 1 ? `${l.meses[0]} a ${l.meses[l.meses.length - 1]}` : l.meses[0]) : '');
-      const mov = crearMovimientoCaja(_db, {
+      const movs = crearMovimientosPago(_db, {
+        pagos: l.pagos,
         tipo: 'egreso',
         concepto: `Pago a propietario • ${own.nombre || 'Propietario'} • ${prop.direccion || 'Propiedad'} • ${periodoLbl}`.trim(),
         monto: Number(l.totalPagar || l.montoAlquiler || 0),
@@ -396,7 +416,8 @@ export const api = {
         refTipo: 'liquidacion',
         refId: l.id,
       });
-      l.cajaMovimientoId = mov.id;
+      l.cajaMovimientoIds = movs.map(m => m.id);
+      l.cajaMovimientoId = movs[0]?.id;
     }
     persist(_db);
     return delay(structuredClone(l));

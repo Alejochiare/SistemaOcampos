@@ -227,6 +227,7 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
   const monto = cobro.monto || alq.montoActual || alq.montoInicial || 0;
   const pago  = cobro.mes ? numPago(alq, cobro.mes) : null;
+  const pagos = (cobro.pagos && cobro.pagos.length) ? cobro.pagos : null;
 
   const dniInq = alq.inquilinoDni || inquilino?.dni || '';
   const telInq = alq.inquilinoTelefono || inquilino?.telefono || '';
@@ -291,8 +292,17 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
         ${cobro.nota ? `<div style="margin-top:2px"><span class="lbl">Observaciones:</span> ${esc(cobro.nota)}</div>` : ''}
       </div>
       <div style="text-align:right;flex-shrink:0;padding-left:12px">
-        <div><span class="lbl">Forma de pago:</span> <strong>${cobro.metodoPago || 'Efectivo'}</strong></div>
-        ${cobro.referencia ? `<div style="margin-top:2px"><span class="lbl">Ref.:</span> ${esc(cobro.referencia)}</div>` : ''}
+        ${pagos && pagos.length > 1 ? `
+        <div><span class="lbl">Forma de pago:</span></div>
+        ${pagos.map(p => `
+        <div style="margin-top:2px">
+          <strong>${esc(p.metodoPago)}:</strong> ${fmtMoneda(p.monto)}
+          ${p.referencia ? ` <span class="lbl">(${esc(p.referencia)})</span>` : ''}
+        </div>`).join('')}
+        ` : `
+        <div><span class="lbl">Forma de pago:</span> <strong>${esc((pagos && pagos[0]?.metodoPago) || cobro.metodoPago || 'Efectivo')}</strong></div>
+        ${(pagos && pagos[0]?.referencia) || cobro.referencia ? `<div style="margin-top:2px"><span class="lbl">Ref.:</span> ${esc((pagos && pagos[0]?.referencia) || cobro.referencia)}</div>` : ''}
+        `}
       </div>
     </div>
 
@@ -320,7 +330,7 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
    }
    ============================================================ */
 export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario,
-                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo' }) {
+                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [] }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
@@ -383,7 +393,16 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
 
     <div class="letras-blk">
       <div><span class="label-fld">Total a liquidar: </span><strong>${enLetras(totalPagar)}</strong></div>
-      <div><span class="label-fld">Forma de pago: </span><strong>${esc(formaPago)}</strong></div>
+      <div style="text-align:right">
+        ${pagos && pagos.length > 1 ? `
+          <div><span class="label-fld">Forma de pago:</span></div>
+          ${pagos.map(p => `
+          <div style="margin-top:2px">
+            <strong>${esc(p.metodoPago)}:</strong> ${fmtMoneda(p.monto)}
+            ${p.referencia ? ` <span class="label-fld">(${esc(p.referencia)})</span>` : ''}
+          </div>`).join('')}
+        ` : `<span class="label-fld">Forma de pago: </span><strong>${esc(formaPago)}</strong>`}
+      </div>
     </div>
 
     <div class="firma-blk">
