@@ -141,6 +141,7 @@ function cobrosALiquidar(state) {
           propietarioId: a.propietarioId,
           cobros: [],
           own: propietarios.find(x => x.id === a.propietarioId),
+          totalPropiedades: propiedades.filter(p => p.propietarioId === a.propietarioId).length,
         };
       }
 
@@ -215,7 +216,19 @@ function pintar(el, filtro, pendientes) {
     const prop = state.propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
     const own  = state.propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
     const inq  = state.clientes.find(c => c.id === alq.inquilinoId) || {};
-    return { ...l, _alq: alq, _prop: prop, _own: own, _inq: inq };
+
+    // Para liquidaciones grupales, contar propiedades distintas (no cobros individuales)
+    let nPropsGrupal = 0;
+    if (l.liquidadosCobros && l.liquidadosCobros.length > 1) {
+      const propIds = new Set();
+      l.liquidadosCobros.forEach(cobroId => {
+        const a = alquileres.find(a => (a.cobros || []).some(c => c.id === cobroId));
+        if (a) propIds.add(a.propiedadId);
+      });
+      nPropsGrupal = propIds.size;
+    }
+
+    return { ...l, _alq: alq, _prop: prop, _own: own, _inq: inq, _nPropsGrupal: nPropsGrupal };
   }).sort((a, b) => (b.fechaPago || '').localeCompare(a.fechaPago || ''));
 
   const totalPend = pendientes.reduce((s, grupo) => {
@@ -286,7 +299,7 @@ function renderPendientes(pendientes) {
               <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
                 <span style="font-weight:700;font-size:1.05rem">${esc(grupo.own?.nombre || '—')}</span>
                 <span class="badge badge-warning" style="font-size:.72rem">${mesesLabelStr}</span>
-                <span class="badge badge-neutral" style="font-size:.72rem">${nProps} ${nProps === 1 ? 'propiedad' : 'propiedades'}</span>
+                <span class="badge badge-neutral" style="font-size:.72rem">${nProps}/${grupo.totalPropiedades} ${grupo.totalPropiedades === 1 ? 'propiedad' : 'propiedades'}</span>
               </div>
               <div style="display:flex;flex-direction:column;gap:.2rem">
                 ${detalle.map(d => `
@@ -334,8 +347,8 @@ function renderHistorial(historial) {
                   : (l.mes ? `<span class="badge badge-neutral">${mesLabel(l.mes)}</span>` : '')}
               </div>
               <div style="font-size:.82rem;color:var(--text-soft);margin-bottom:.4rem">
-                ${esGrupal ? 
-                  `<strong>${l.liquidadosCobros?.length || 1} propiedad${l.liquidadosCobros?.length > 1 ? 'es' : ''}` : 
+                ${esGrupal ?
+                  `<strong>${l._nPropsGrupal || 1} ${l._nPropsGrupal === 1 ? 'propiedad' : 'propiedades'}</strong> · ${l.liquidadosCobros.length} cobros` :
                   `${esc(l._prop?.direccion || '—')}${l._prop?.ciudad ? ' · ' + esc(l._prop.ciudad) : ''}`
                 }
               </div>
@@ -389,6 +402,16 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
     ? mesLabel(grupo.meses[0])
     : `${mesLabel(grupo.meses[0])} – ${mesLabel(grupo.meses[grupo.meses.length - 1])}`;
 
+  // Agrupar los cobros por propiedad (una propiedad puede tener varios meses pendientes)
+  const porProp = {};
+  grupo.cobros.forEach(c => {
+    const k = c.prop?.id || 'x';
+    if (!porProp[k]) porProp[k] = { prop: c.prop, inq: c.inq, periodos: [], total: 0 };
+    porProp[k].periodos.push({ mes: c.cobro.mes, fechaPago: c.cobro.fechaPago });
+    porProp[k].total += c.cobro.monto || 0;
+  });
+  const detalleProps = Object.values(porProp);
+
   let descIdx = 0;
 
   openModal({
@@ -398,16 +421,16 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
       <form id="liqGrupalForm">
         <!-- Resumen de propiedades y cobros -->
         <div style="background:var(--surface-2);border-radius:var(--r-md);padding:1rem;margin-bottom:1.25rem;border:1px solid var(--border)">
-          <div style="font-size:.72rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem">Propiedades y cobros del período</div>
+          <div style="font-size:.72rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem">Propiedades y cobros del período (${detalleProps.length}/${grupo.totalPropiedades} ${grupo.totalPropiedades === 1 ? 'propiedad' : 'propiedades'})</div>
           <div style="display:flex;flex-direction:column;gap:.6rem">
-            ${grupo.cobros.map((item, idx) => `
+            ${detalleProps.map(d => `
             <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:.6rem;background:var(--surface);border-radius:var(--r-sm);border-left:3px solid var(--primary)">
               <div style="flex:1">
-                <div style="font-weight:600;margin-bottom:.2rem">${esc(item.prop?.direccion || '—')}</div>
-                <div style="font-size:.78rem;color:var(--text-soft)">${esc(item.inq?.nombre || '—')} · ${esc(item.prop?.barrio || '')}</div>
-                <div style="font-size:.75rem;color:var(--text-faint);margin-top:.2rem">${mesLabel(item.cobro.mes)} · Cobrado: ${fmtFecha(item.cobro.fechaPago)}</div>
+                <div style="font-weight:600;margin-bottom:.2rem">${esc(d.prop?.direccion || '—')}</div>
+                <div style="font-size:.78rem;color:var(--text-soft)">${esc(d.inq?.nombre || '—')} · ${esc(d.prop?.barrio || '')}</div>
+                <div style="font-size:.75rem;color:var(--text-faint);margin-top:.2rem">${d.periodos.map(p => `${mesLabel(p.mes)} · Cobrado: ${fmtFecha(p.fechaPago)}`).join(' · ')}</div>
               </div>
-              <div style="font-weight:700;font-size:1.1rem;text-align:right;color:var(--primary)">${fmt$(item.cobro.monto)}</div>
+              <div style="font-weight:700;font-size:1.1rem;text-align:right;color:var(--primary)">${fmt$(d.total)}</div>
             </div>`).join('')}
           </div>
           <div style="border-top:2px solid var(--border);margin-top:.75rem;padding-top:.75rem;display:flex;justify-content:space-between;align-items:center;font-size:1.1rem;font-weight:800">
