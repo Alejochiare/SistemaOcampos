@@ -19,8 +19,56 @@ export function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/** Da formato de miles en vivo (es-AR, con puntos) a un input de monto mientras se escribe.
+ *  Se usa vía delegación global sobre inputs con clase "input-monto" (ver app.js). */
+export function formatearMontoInput(e) {
+  const input = e.target;
+  const cursorPos = input.selectionStart ?? input.value.length;
+  const antes = input.value.slice(0, cursorPos);
+  const digitosAntes = (antes.match(/\d/g) || []).length;
+
+  const digitos = input.value.replace(/\D/g, '');
+  input.value = digitos ? Number(digitos).toLocaleString('es-AR') : '';
+
+  let pos = 0, contados = 0;
+  while (pos < input.value.length && contados < digitosAntes) {
+    if (/\d/.test(input.value[pos])) contados++;
+    pos++;
+  }
+  try { input.setSelectionRange(pos, pos); } catch {}
+}
+
+/** Da formato inicial (con puntos de miles) a un valor numérico para precargar un input de monto. */
+export function fmtMontoInput(n) {
+  return (n || n === 0) && n !== '' ? Number(n).toLocaleString('es-AR') : '';
+}
+
+/** Valor numérico real de un input de monto formateado con puntos de miles. */
+export function valorMonto(v) {
+  return Number(String(v ?? '').replace(/\D/g, '')) || 0;
+}
+
 export function uid(prefix = 'id') {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** Devuelve la lista de garantes de un contrato de alquiler. Soporta tanto el
+ *  array nuevo (`alq.garantes`) como los contratos viejos que todavía guardan
+ *  un único garante en campos sueltos (`garante`, `garanteDni`, ...). */
+export function garantesDeAlquiler(alq) {
+  if (Array.isArray(alq.garantes)) return alq.garantes;
+  if (alq.garante || alq.garanteDni || alq.garanteTelefono || alq.garanteEmail || alq.garanteDomicilio || alq.garanteRelacion || alq.garantePropiedad) {
+    return [{
+      nombre: alq.garante || '',
+      dni: alq.garanteDni || '',
+      telefono: alq.garanteTelefono || '',
+      email: alq.garanteEmail || '',
+      domicilio: alq.garanteDomicilio || '',
+      relacion: alq.garanteRelacion || '',
+      propiedadGarantia: alq.garantePropiedad || '',
+    }];
+  }
+  return [];
 }
 
 export function debounce(fn, ms = 250) {

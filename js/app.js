@@ -12,8 +12,15 @@ import { initSidebar } from './components/sidebar.js';
 import { initTopbar } from './components/topbar.js';
 import { initRouter } from './router.js';
 import { initNotifications } from './notifications.js';
-import { $ } from './lib.js';
+import { $, formatearMontoInput } from './lib.js';
 import { cargarDatosDemo } from './data.js';
+import { actualizarIndices } from './indices.js';
+
+// Formato de miles en vivo (200.000, 1.000.000) para cualquier input de monto,
+// sin importar en qué modal/vista se cree (delegado a nivel documento).
+document.addEventListener('input', (e) => {
+  if (e.target.matches?.('.input-monto')) formatearMontoInput(e);
+});
 
 async function boot() {
   // Pantalla de carga mínima mientras se hidrata el estado
@@ -28,6 +35,9 @@ async function boot() {
   initTopbar();           // tema, colapso, búsqueda global, notificaciones
   initRouter();           // resuelve y renderiza la vista del hash
   initNotifications();    // alertas del SO para eventos de agenda
+
+  // % de ICL/IPC automático (APIs públicas) — no bloquea el arranque si tarda o falla
+  actualizarIndices().catch(() => {});
 
   // Atajo de teclado: Ctrl/Cmd + K enfoca la búsqueda global
   window.addEventListener('keydown', (e) => {

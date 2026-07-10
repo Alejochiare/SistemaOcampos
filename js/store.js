@@ -67,6 +67,8 @@ export const actions = {
   async createAlquiler(d)           { await api.createAlquiler(d); await refresh(); },
   async updateAlquiler(id, p)       { await api.updateAlquiler(id, p); await refresh(); },
   async deleteAlquiler(id)          { await api.deleteAlquiler(id); await refresh(); },
+  async renovarAlquiler(oldId, d)   { const r = await api.renovarAlquiler(oldId, d); await refresh(); return r; },
+  async cancelarAlquiler(id)        { const r = await api.cancelarAlquiler(id); await refresh(); return r; },
   async addCobro(alqId, cobro)      { await api.addCobro(alqId, cobro); await refresh(); },
   async updateCobro(alqId, cobId, p){ await api.updateCobro(alqId, cobId, p); await refresh(); },
   async registrarAumento(alqId, nuevoMonto, nota) { await api.registrarAumento(alqId, nuevoMonto, nota); await refresh(); },
@@ -87,12 +89,12 @@ export const actions = {
   async deleteTemporal(id)     { await api.deleteTemporal(id); await refresh(); },
 
   /* Liquidaciones */
-  async createLiquidacion(d)      { await api.createLiquidacion(d); await refresh(); },
+  async createLiquidacion(d)      { const r = await api.createLiquidacion(d); await refresh(); return r; },
   async updateLiquidacion(id, p)  { await api.updateLiquidacion(id, p); await refresh(); },
   async deleteLiquidacion(id)     { await api.deleteLiquidacion(id); await refresh(); },
 
   /* Caja */
-  async cajaHoy()                        { return api.cajaHoy(); },
+  async cajaHoy()                        { const r = await api.cajaHoy(); await refresh(); return r; },
   async addMovimiento(cajaId, data)      { await api.addMovimiento(cajaId, data); await refresh(); },
   async deleteMovimiento(cajaId, movId)  { await api.deleteMovimiento(cajaId, movId); await refresh(); },
   async cerrarCaja(cajaId)               { await api.cerrarCaja(cajaId); await refresh(); },
@@ -143,22 +145,64 @@ export const sel = {
   },
   estadoAlquiler(alq) {
     if (alq.estado === 'rescindido') return 'rescindido';
+    if (alq.estado === 'renovado') return 'renovado';
     const d = sel.diasAlVencimiento(alq);
     if (d < 0) return 'vencido';
     if (d <= ALERTA_VENCIMIENTO_DIAS) return 'por_vencer';
     return 'activo';
   },
+  /** Meses vencidos (mes actual o anteriores) sin cobrar — incluye tanto los
+   *  registrados como impagos como los que directamente nunca se registraron. */
   cobrosImpagosMes(alq) {
+    if (!alq.fechaInicio) return [];
     const hoy = new Date();
-    const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
-    return (alq.cobros || []).filter(c => c.mes <= mesActual && !c.pagado);
+    const hoyKey = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+    const finKey = alq.fechaFin ? alq.fechaFin.slice(0, 7) : hoyKey;
+    const topeKey = finKey < hoyKey ? finKey : hoyKey;
+
+    const cobrosPorMes = {};
+    (alq.cobros || []).forEach(c => { cobrosPorMes[c.mes] = c; });
+
+    const inicio = new Date(alq.fechaInicio);
+    const pendientes = [];
+    let cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+    while (true) {
+      const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+      if (key > topeKey) break;
+      const cobro = cobrosPorMes[key];
+      if (!cobro || !cobro.pagado) {
+        pendientes.push(cobro || { mes: key, monto: alq.montoActual ?? alq.montoInicial ?? 0, pagado: false });
+      }
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return pendientes;
+  },
+  /** Próximo mes a cobrar si vence en los próximos 7 días y el contrato está al día
+   *  (si ya tiene meses vencidos sin cobrar, esos aparecen en cobrosImpagosMes, no acá). */
+  proximoCobro(alq) {
+    if (!alq.fechaInicio) return null;
+    if (sel.cobrosImpagosMes(alq).length > 0) return null;
+    const hoy = new Date();
+    const inicioProxMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+    const dias = Math.round((inicioProxMes - hoy) / 86400000);
+    if (dias > 7) return null;
+    const mesKey = `${inicioProxMes.getFullYear()}-${String(inicioProxMes.getMonth()+1).padStart(2,'0')}`;
+    if (alq.fechaFin && mesKey > alq.fechaFin.slice(0, 7)) return null; // el contrato termina antes de ese mes
+    return { mes: mesKey, monto: alq.montoActual ?? alq.montoInicial ?? 0, dias };
+  },
+  /** Lista de próximos cobros (uno por contrato activo, si aplica), ordenada por urgencia. */
+  proximosCobros() {
+    return sel.alquileresActivos()
+      .map(alq => ({ alq, ...sel.proximoCobro(alq) }))
+      .filter(x => x.mes)
+      .sort((a, b) => a.dias - b.dias);
   },
   alquileresActivos() {
-    return state.alquileres.filter(a => a.estado !== 'rescindido' && sel.diasAlVencimiento(a) >= 0);
+    return state.alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) >= 0);
   },
   proxVencimientos() {
     return state.alquileres
-      .filter(a => a.estado !== 'rescindido')
+      .filter(a => !['rescindido', 'renovado'].includes(a.estado))
       .map(a => ({ alq: a, dias: sel.diasAlVencimiento(a) }))
       .filter(x => x.dias >= 0 && x.dias <= ALERTA_VENCIMIENTO_DIAS)
       .sort((a, b) => a.dias - b.dias);

@@ -4,7 +4,7 @@
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState } from '../store.js';
-import { $, esc } from '../lib.js';
+import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto } from '../lib.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
@@ -33,7 +33,7 @@ function propiedadesAlquiladasActivas(excluirAlqId = null) {
   const ids = new Set();
   alquileres.forEach(a => {
     if (excluirAlqId && a.id === excluirAlqId) return; // edición del mismo contrato
-    if (a.estado === 'rescindido') return;
+    if (a.estado === 'rescindido' || a.estado === 'renovado') return;
     if (a.fechaFin && a.fechaFin < hoy) return; // ya venció
     if (a.propiedadId) ids.add(a.propiedadId);
   });
@@ -116,7 +116,7 @@ export function openClienteForm(cli = null, onDone) {
             <div class="form-group"><label>Ambientes mínimo</label>
               <input name="b_ambientes" type="number" min="1" max="10" value="${b.ambientes||''}" placeholder="Ej. 2"></div>
             <div class="form-group"><label>Presupuesto por mes</label>
-              <input name="b_presupuesto" type="number" min="0" value="${b.presupuesto||''}" placeholder="0"></div>
+              <input name="b_presupuesto" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(b.presupuesto)}" placeholder="0"></div>
             <div class="form-group"><label>Moneda</label>
               <select name="b_moneda">${opts(MONEDAS, b.moneda||'ARS')}</select></div>
             <div class="form-group"><label>¿Tiene mascotas?</label>
@@ -152,7 +152,7 @@ export function openClienteForm(cli = null, onDone) {
             <div class="form-group"><label>Ambientes mínimo</label>
               <input name="c_ambientes" type="number" min="1" max="10" value="${b.ambientes||''}" placeholder="Ej. 3"></div>
             <div class="form-group"><label>Presupuesto</label>
-              <input name="c_presupuesto" type="number" min="0" value="${b.presupuesto||''}" placeholder="0"></div>
+              <input name="c_presupuesto" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(b.presupuesto)}" placeholder="0"></div>
             <div class="form-group"><label>Moneda</label>
               <select name="c_moneda">${opts(MONEDAS, b.moneda||'USD')}</select></div>
             <div class="form-group"><label>Superficie mínima (m²)</label>
@@ -206,7 +206,7 @@ export function openClienteForm(cli = null, onDone) {
           buscaData = {
             tipo: fd.get('b_tipo') || null, zona: fd.get('b_zona') || null,
             ambientes: fd.get('b_ambientes') ? Number(fd.get('b_ambientes')) : null,
-            presupuesto: fd.get('b_presupuesto') ? Number(fd.get('b_presupuesto')) : null,
+            presupuesto: fd.get('b_presupuesto') ? valorMonto(fd.get('b_presupuesto')) : null,
             moneda: fd.get('b_moneda'),
             mascota: fd.get('b_mascota') || null, cochera: fd.get('b_cochera') || null,
             plantabaja: fd.get('b_plantabaja') || null, extras: fd.get('b_extras') || null,
@@ -215,7 +215,7 @@ export function openClienteForm(cli = null, onDone) {
           buscaData = {
             tipo: fd.get('c_tipo') || null, zona: fd.get('c_zona') || null,
             ambientes: fd.get('c_ambientes') ? Number(fd.get('c_ambientes')) : null,
-            presupuesto: fd.get('c_presupuesto') ? Number(fd.get('c_presupuesto')) : null,
+            presupuesto: fd.get('c_presupuesto') ? valorMonto(fd.get('c_presupuesto')) : null,
             moneda: fd.get('c_moneda'),
             m2: fd.get('c_m2') ? Number(fd.get('c_m2')) : null,
             cochera: fd.get('c_cochera') || null, uso: fd.get('c_uso') || null,
@@ -453,15 +453,15 @@ export function openPropForm(prop = null, onDone) {
         <h3 class="form-section-title" style="margin-top:1.5rem">Precios</h3>
         <div class="form-grid">
           <div class="form-group"><label>Precio de alquiler</label>
-            <input name="precioAlquiler" type="number" min="0" value="${prop.precioAlquiler||''}"></div>
+            <input name="precioAlquiler" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(prop.precioAlquiler)}"></div>
           <div class="form-group"><label>Moneda alquiler</label>
             <select name="monedaAlquiler">${opts(MONEDAS, prop.monedaAlquiler||'ARS')}</select></div>
           <div class="form-group"><label>Precio de venta</label>
-            <input name="precioVenta" type="number" min="0" value="${prop.precioVenta||''}"></div>
+            <input name="precioVenta" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(prop.precioVenta)}"></div>
           <div class="form-group"><label>Moneda venta</label>
             <select name="monedaVenta">${opts(MONEDAS, prop.monedaVenta||'USD')}</select></div>
           <div class="form-group"><label>Expensas / mes</label>
-            <input name="expensas" type="number" min="0" value="${prop.expensas||''}" placeholder="0"></div>
+            <input name="expensas" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(prop.expensas)}" placeholder="0"></div>
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Descripción para el sitio web</h3>
@@ -574,9 +574,13 @@ export function openPropForm(prop = null, onDone) {
         if (!f.direccion.value.trim()) { f.direccion.focus(); toast('La dirección es obligatoria', { tipo: 'warning' }); return; }
         const fd = new FormData(f);
         const data = Object.fromEntries(fd.entries());
-        // Numéricos
-        ['ambientes','banos','m2','m2Cubiertos','antiguedad','precioAlquiler','precioVenta','expensas','pisosEdificio'].forEach(k => {
+        // Numéricos (cantidades)
+        ['ambientes','banos','m2','m2Cubiertos','antiguedad','pisosEdificio'].forEach(k => {
           data[k] = data[k] ? Number(data[k]) : null;
+        });
+        // Montos (con formato de miles a limpiar)
+        ['precioAlquiler','precioVenta','expensas'].forEach(k => {
+          data[k] = data[k] ? valorMonto(data[k]) : null;
         });
         // Amenities (checkboxes múltiples)
         data.amenities = Array.from(ctx.overlay.querySelectorAll('[name="amenity"]:checked')).map(c => c.value);
@@ -598,11 +602,71 @@ export function openPropForm(prop = null, onDone) {
   });
 }
 
+/** Gestiona N filas de garante dentro del formulario de contrato (agregar/quitar/editar). */
+function montarGarantes(ctx, iniciales) {
+  const ov = ctx.overlay;
+  let garantes = (iniciales || []).map(g => ({ ...g }));
+
+  const render = () => {
+    const blk = ov.querySelector('#garantesBlk');
+    if (!garantes.length) {
+      blk.innerHTML = `<div style="font-size:.8rem;color:var(--text-soft);padding:.4rem 0">Sin garantes cargados.</div>`;
+      return;
+    }
+    blk.innerHTML = garantes.map((g, i) => `
+      <div style="border:1px solid var(--border);border-radius:var(--r-md);padding:.85rem;margin-bottom:.75rem" data-garante-idx="${i}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+          <strong style="font-size:.82rem;color:var(--text-soft)">Garante ${i + 1}</strong>
+          <button type="button" class="btn btn-xs btn-ghost" data-del-garante style="color:var(--danger)">${icon('trash')}</button>
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label>Nombre y apellido</label>
+            <input data-f="nombre" value="${esc(g.nombre||'')}" placeholder="Nombre completo del garante"></div>
+          <div class="form-group"><label>DNI / CUIT</label>
+            <input data-f="dni" value="${esc(g.dni||'')}" placeholder="Ej: 30.123.456"></div>
+          <div class="form-group"><label>Teléfono / WhatsApp</label>
+            <input data-f="telefono" value="${esc(g.telefono||'')}" placeholder="351 ..."></div>
+          <div class="form-group"><label>Email</label>
+            <input data-f="email" type="email" value="${esc(g.email||'')}"></div>
+          <div class="form-group full"><label>Domicilio</label>
+            <input data-f="domicilio" value="${esc(g.domicilio||'')}" placeholder="Calle, número, localidad"></div>
+          <div class="form-group"><label>Relación con el inquilino</label>
+            <input data-f="relacion" value="${esc(g.relacion||'')}" placeholder="Ej: Padre, hermano, empleador..."></div>
+          <div class="form-group"><label>Propiedad en garantía</label>
+            <input data-f="propiedadGarantia" value="${esc(g.propiedadGarantia||'')}" placeholder="Ej: Bv. San Juan 540, Córdoba"></div>
+        </div>
+      </div>`).join('');
+
+    blk.querySelectorAll('[data-garante-idx]').forEach(row => {
+      const i = Number(row.dataset.garanteIdx);
+      row.querySelectorAll('[data-f]').forEach(inp => {
+        inp.addEventListener('input', () => { garantes[i][inp.dataset.f] = inp.value; });
+      });
+      row.querySelector('[data-del-garante]').addEventListener('click', () => {
+        garantes.splice(i, 1);
+        render();
+      });
+    });
+  };
+
+  ov.querySelector('#btnAddGarante').addEventListener('click', () => {
+    garantes.push({ nombre: '', dni: '', telefono: '', email: '', domicilio: '', relacion: '', propiedadGarantia: '' });
+    render();
+  });
+
+  render();
+
+  return {
+    getGarantes: () => garantes.filter(g => Object.values(g).some(v => v && String(v).trim())),
+  };
+}
+
 /* ============================================================
    ALQUILER
    ============================================================ */
-export function openAlquilerForm(alq = null, onDone) {
-  const ed = !!alq; alq = alq || {};
+export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
+  const renovando = !!formOpts.renovarDeId;
+  const ed = !!alq && !renovando; alq = alq || {};
   const { clientes, propietarios, propiedades } = getState();
 
   const alqInq  = clientes.find(c => c.id === alq.inquilinoId);
@@ -619,7 +683,7 @@ export function openAlquilerForm(alq = null, onDone) {
     </div>`;
 
   openModal({
-    title: ed ? 'Editar contrato' : 'Nuevo contrato de alquiler', size: 'lg',
+    title: renovando ? 'Renovar contrato' : (ed ? 'Editar contrato' : 'Nuevo contrato de alquiler'), size: 'lg',
     bodyHTML: `
       <form id="alqForm">
         <h3 class="form-section-title">Partes</h3>
@@ -641,7 +705,7 @@ export function openAlquilerForm(alq = null, onDone) {
           <div class="form-group"><label>Fecha fin <span class="req">*</span></label>
             <input name="fechaFin" type="date" value="${(alq.fechaFin||'').slice(0,10)}" required></div>
           <div class="form-group"><label>Monto inicial</label>
-            <input name="montoInicial" type="number" min="0" value="${alq.montoInicial||''}"></div>
+            <input name="montoInicial" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(alq.montoInicial)}"></div>
           <div class="form-group"><label>Moneda</label>
             <select name="moneda">${opts(MONEDAS, alq.moneda||'ARS')}</select></div>
           <div class="form-group"><label>Tipo de ajuste</label>
@@ -667,33 +731,26 @@ export function openAlquilerForm(alq = null, onDone) {
           <div class="form-group"><label>Fecha de firma</label>
             <input name="fechaFirma" type="date" value="${(alq.fechaFirma||'').slice(0,10)}"></div>
           <div class="form-group"><label>Depósito</label>
-            <input name="deposito" type="number" min="0" value="${alq.deposito||''}"></div>
+            <input name="deposito" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(alq.deposito)}"></div>
           <div class="form-group"><label>Comisión (%)</label>
             <input name="comision" type="number" min="0" step="0.5" value="${alq.comision||''}"></div>
+          <div class="form-group"><label>Cobra comisión inicial</label>
+            <select name="comisionInicial">
+              <option value="" ${!alq.comisionInicial ? 'selected' : ''}>No</option>
+              <option value="si" ${alq.comisionInicial ? 'selected' : ''}>Sí</option>
+            </select></div>
         </div>
 
-        <h3 class="form-section-title" style="margin-top:1.25rem">Datos del garante</h3>
+        <h3 class="form-section-title" style="margin-top:1.25rem">Garantes</h3>
+        <div id="garantesBlk" style="margin-bottom:.5rem"></div>
+        <button type="button" id="btnAddGarante" class="btn btn-sm btn-ghost" style="margin-bottom:1.25rem">${icon('plus')} Agregar garante</button>
+
         <div class="form-grid">
-          <div class="form-group"><label>Nombre y apellido</label>
-            <input name="garante" value="${esc(alq.garante||'')}" placeholder="Nombre completo del garante"></div>
-          <div class="form-group"><label>DNI / CUIT</label>
-            <input name="garanteDni" value="${esc(alq.garanteDni||'')}" placeholder="Ej: 30.123.456"></div>
-          <div class="form-group"><label>Teléfono / WhatsApp</label>
-            <input name="garanteTelefono" value="${esc(alq.garanteTelefono||'')}" placeholder="351 ..."></div>
-          <div class="form-group"><label>Email</label>
-            <input name="garanteEmail" type="email" value="${esc(alq.garanteEmail||'')}"></div>
-          <div class="form-group full"><label>Domicilio</label>
-            <input name="garanteDomicilio" value="${esc(alq.garanteDomicilio||'')}" placeholder="Calle, número, localidad"></div>
-          <div class="form-group"><label>Relación con el inquilino</label>
-            <input name="garanteRelacion" value="${esc(alq.garanteRelacion||'')}" placeholder="Ej: Padre, hermano, empleador..."></div>
-          <div class="form-group"><label>Propiedad en garantía</label>
-            <input name="garantePropiedad" value="${esc(alq.garantePropiedad||'')}" placeholder="Ej: Bv. San Juan 540, Córdoba"></div>
-        <div class="form-group" style="display:none"></div>
           <div class="form-group full"><label>Notas</label>
             <textarea name="notas">${esc(alq.notas||'')}</textarea></div>
         </div>
       </form>`,
-    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveAlq">${ed?'Guardar':'Crear contrato'}</button>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveAlq">${renovando ? 'Guardar renovación' : (ed?'Guardar':'Crear contrato')}</button>`,
     onMount(ctx) {
       // Función genérica de buscador autocomplete
       function makeSearch({ searchId, dropId, hiddenId, lista, labelFn, subFn }) {
@@ -716,6 +773,8 @@ export function openAlquilerForm(alq = null, onDone) {
               drop.style.display = 'none';
               // Al elegir propietario, filtrar propiedades
               if (hiddenId === 'propietarioId') refreshProps();
+              // Al elegir inquilino, tomar sus datos de contacto automáticamente
+              if (hiddenId === 'inquilinoId') autocompletarInquilino(el.dataset.id);
             });
           });
         };
@@ -724,9 +783,18 @@ export function openAlquilerForm(alq = null, onDone) {
         inp.addEventListener('focus', () => { if (inp.value) show(inp.value); });
       }
 
+      const autocompletarInquilino = (clienteId) => {
+        const c = clientes.find(x => x.id === clienteId);
+        if (!c) return;
+        const f = $('#alqForm', ctx.overlay);
+        if (c.dni)       f.inquilinoDni.value = c.dni;
+        if (c.telefono)  f.inquilinoTelefono.value = c.telefono;
+        if (c.domicilio) f.inquilinoDomicilio.value = c.domicilio;
+      };
+
       const refreshProps = () => {
         const ownId = ctx.overlay.querySelector('#propietarioId')?.value || '';
-        const yaAlquiladas = propiedadesAlquiladasActivas(ed ? alq.id : null);
+        const yaAlquiladas = propiedadesAlquiladasActivas(renovando ? formOpts.renovarDeId : (ed ? alq.id : null));
         const lista = propiedades.filter(p => {
           if (ownId && p.propietarioId !== ownId) return false;
           if (!['disponible', 'alquilada'].includes(p.estado)) return false;
@@ -755,32 +823,59 @@ export function openAlquilerForm(alq = null, onDone) {
       });
       refreshProps();
 
+      const garantesCtl = montarGarantes(ctx, garantesDeAlquiler(alq));
+
       $('#saveAlq', ctx.overlay).addEventListener('click', async () => {
         const f = $('#alqForm', ctx.overlay);
         if (!ctx.overlay.querySelector('#inquilinoId').value) { toast('Seleccioná un inquilino', { tipo: 'warning' }); return; }
         if (!ctx.overlay.querySelector('#propiedadId').value) { toast('Seleccioná una propiedad', { tipo: 'warning' }); return; }
         if (!f.fechaInicio.value || !f.fechaFin.value) { toast('Las fechas son obligatorias', { tipo: 'warning' }); return; }
         if (!ed) {
-          const ocupada = propiedadesAlquiladasActivas();
+          const ocupada = propiedadesAlquiladasActivas(renovando ? formOpts.renovarDeId : null);
           if (ocupada.has(ctx.overlay.querySelector('#propiedadId').value)) {
-            toast('Esa propiedad ya tiene un contrato de alquiler activo', { tipo: 'error' }); return;
+            toast('Esa propiedad ya tiene un contrato de alquiler activo', { tipo: 'danger' }); return;
           }
         }
         const data = Object.fromEntries(new FormData(f).entries());
-        ['montoInicial','deposito','comision','porcentajeAjuste'].forEach(k => data[k] = data[k] ? Number(data[k]) : null);
+        ['comision','porcentajeAjuste'].forEach(k => data[k] = data[k] ? Number(data[k]) : null);
+        ['montoInicial','deposito'].forEach(k => data[k] = data[k] ? valorMonto(data[k]) : null);
         // Usar comision también como pctHonorarios para liquidaciones
         if (data.comision != null) data.pctHonorarios = data.comision;
+        data.comisionInicial = data.comisionInicial === 'si';
         data.frecuenciaAjuste = Number(data.frecuenciaAjuste);
-        // Campos de garante: limpiar vacíos
-        ['garante','garanteDni','garanteTelefono','garanteEmail','garanteDomicilio','garanteRelacion','garantePropiedad',
-         'inquilinoDni','inquilinoTelefono','inquilinoDomicilio','fechaFirma']
+        data.garantes = garantesCtl.getGarantes();
+        ['inquilinoDni','inquilinoTelefono','inquilinoDomicilio','fechaFirma']
           .forEach(k => { if (!data[k]) data[k] = null; });
-        if (ed) { await actions.updateAlquiler(alq.id, data); toast('Contrato actualizado'); }
-        else { await actions.createAlquiler(data); toast('Contrato creado correctamente'); }
-        ctx.close(); onDone?.();
+        let resultado;
+        if (renovando) { resultado = await actions.renovarAlquiler(formOpts.renovarDeId, data); toast('Contrato renovado correctamente'); }
+        else if (ed) { resultado = await actions.updateAlquiler(alq.id, data); toast('Contrato actualizado'); }
+        else { resultado = await actions.createAlquiler(data); toast('Contrato creado correctamente'); }
+        ctx.close(); onDone?.(resultado);
       });
     }
   });
+}
+
+/** Abre el formulario de contrato precargado con los datos del contrato viejo,
+ *  para crear su renovación (nuevo contrato, editable, que reemplaza al anterior). */
+export function openRenovacionForm(alqViejo, onDone) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const nuevaInicio = alqViejo.fechaFin && alqViejo.fechaFin > hoy
+    ? new Date(new Date(alqViejo.fechaFin).getTime() + 86400000).toISOString().slice(0, 10)
+    : hoy;
+  // Sugerir 1 año de duración por defecto (totalmente editable) para no dejar
+  // el campo obligatorio vacío y evitar que la validación bloquee el guardado sin que se note.
+  const finSugerida = new Date(nuevaInicio);
+  finSugerida.setFullYear(finSugerida.getFullYear() + 1);
+  const prefill = {
+    ...alqViejo,
+    fechaInicio: nuevaInicio,
+    fechaFin: finSugerida.toISOString().slice(0, 10),
+    fechaFirma: '',
+    montoInicial: alqViejo.montoActual ?? alqViejo.montoInicial,
+    comisionInicial: false,
+  };
+  openAlquilerForm(prefill, onDone, { renovarDeId: alqViejo.id });
 }
 
 /* ============================================================
@@ -790,6 +885,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
   const hoy = new Date();
   const mesActual = prefill.mes || `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
   const montoSugerido = prefill.monto ?? alq.montoActual ?? alq.montoInicial ?? '';
+  const editCobroId = prefill.cobroId || null;
 
   const METODOS = [
     { id: 'Efectivo',      icon: '💵' },
@@ -800,7 +896,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
   ];
 
   openModal({
-    title: 'Registrar cobro',
+    title: editCobroId ? 'Confirmar cobro' : 'Registrar cobro',
     bodyHTML: `
       <form id="cobroForm">
         <!-- Mes y monto -->
@@ -811,7 +907,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           </div>
           <div class="form-group">
             <label>Monto $</label>
-            <input name="monto" type="number" min="0" value="${montoSugerido}" style="font-size:1.1rem;font-weight:700">
+            <input name="monto" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(montoSugerido)}" style="font-size:1.1rem;font-weight:700">
           </div>
           <div class="form-group">
             <label>Fecha de pago</label>
@@ -820,6 +916,20 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           <div class="form-group" style="display:flex;align-items:center;gap:.6rem;padding-top:1.6rem">
             <input type="checkbox" name="pagado" id="chkPagado" checked style="width:16px;height:16px;cursor:pointer">
             <label for="chkPagado" style="margin:0;cursor:pointer;font-weight:600">Marcar como pagado</label>
+          </div>
+        </div>
+
+        <!-- Comisión inicial (solo si aplica a la cuota N°1) -->
+        <div id="comisionInicialBlk" style="display:none;margin-bottom:1.1rem;padding:.9rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--warning) 10%,transparent);border:1px solid var(--warning)">
+          <div style="font-weight:700;margin-bottom:.3rem">💼 Comisión por primer mes</div>
+          <div style="font-size:.82rem;color:var(--text-soft);margin-bottom:.6rem">Este contrato tiene una comisión inicial pendiente.</div>
+          <div class="form-grid" style="margin-bottom:.5rem">
+            <div class="form-group"><label>Monto de la comisión $</label>
+              <input type="text" inputmode="numeric" class="input-monto" id="comisionInicialMonto" placeholder="Ej: 800.000"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <input type="checkbox" id="chkComisionInicial" checked style="width:16px;height:16px;cursor:pointer">
+            <label for="chkComisionInicial" style="margin:0;cursor:pointer;font-weight:600">Cobrar comisión junto con esta cuota</label>
           </div>
         </div>
 
@@ -847,7 +957,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       const actualizarResumen = () => {
         const el = ov.querySelector('#pagosResumen');
         if (!el) return;
-        const total = Number(ov.querySelector('#cobroForm').monto.value) || 0;
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value);
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         if (pagos.length > 1) {
           const dif = Math.round((total - asignado) * 100) / 100;
@@ -871,7 +981,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
             </div>
             <div class="form-group" style="margin:0;width:130px">
               <label style="font-size:.72rem">Monto $</label>
-              <input type="number" min="0" data-f="monto" value="${p.monto}">
+              <input type="text" inputmode="numeric" class="input-monto" data-f="monto" value="${fmtMontoInput(p.monto)}">
             </div>
             ${mostrarRef(p.metodoPago) ? `
             <div class="form-group" style="margin:0;flex:1;min-width:160px">
@@ -884,7 +994,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
         blk.querySelectorAll('[data-pago-row]').forEach(row => {
           const i = Number(row.dataset.pagoRow);
           row.querySelector('[data-f="metodoPago"]').addEventListener('change', e => { pagos[i].metodoPago = e.target.value; renderPagos(); });
-          row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = e.target.value; actualizarResumen(); });
+          row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = valorMonto(e.target.value); actualizarResumen(); });
           row.querySelector('[data-f="referencia"]')?.addEventListener('input', e => { pagos[i].referencia = e.target.value; });
         });
         blk.querySelectorAll('[data-del-pago]').forEach(btn => {
@@ -894,7 +1004,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       };
 
       ov.querySelector('#btnAddPago').addEventListener('click', () => {
-        const total = Number(ov.querySelector('#cobroForm').monto.value) || 0;
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value);
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         const restante = Math.max(0, total - asignado);
         const usados = pagos.map(p => p.metodoPago);
@@ -907,6 +1017,16 @@ export function openCobroForm(alq, onDone, prefill = {}) {
 
       renderPagos();
 
+      // Mostrar el bloque de comisión inicial solo para la cuota del mes de inicio del contrato
+      const elegibleComision = !!alq.comisionInicial && !alq.comisionInicialCobrada;
+      const blkComision = ov.querySelector('#comisionInicialBlk');
+      const actualizarBlkComision = () => {
+        const esPrimeraCuota = $('#cobroForm', ov).mes.value === (alq.fechaInicio || '').slice(0, 7);
+        blkComision.style.display = (elegibleComision && esPrimeraCuota) ? '' : 'none';
+      };
+      actualizarBlkComision();
+      $('#cobroForm', ov).mes.addEventListener('change', actualizarBlkComision);
+
       $('#saveCobro', ov).addEventListener('click', async () => {
         const f = $('#cobroForm', ov);
         if (!f.mes.value) { toast('Indicá el mes', { tipo: 'warning' }); return; }
@@ -915,7 +1035,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           .map(p => ({ metodoPago: p.metodoPago, monto: Number(p.monto), referencia: p.referencia || null }));
         if (!pagosValidos.length) { toast('Indicá el monto de al menos una forma de pago', { tipo: 'warning' }); return; }
 
-        const totalMonto = f.monto.value ? Number(f.monto.value) : null;
+        const totalMonto = f.monto.value ? valorMonto(f.monto.value) : null;
         if (pagosValidos.length > 1 && totalMonto != null) {
           const suma = pagosValidos.reduce((s, p) => s + p.monto, 0);
           if (Math.round(suma * 100) !== Math.round(totalMonto * 100)) {
@@ -938,7 +1058,14 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           pagos:      pagosValidos,
           nota:       f.nota.value || null,
         };
-        await actions.addCobro(alq.id, cobro);
+
+        if (blkComision.style.display !== 'none' && ov.querySelector('#chkComisionInicial').checked) {
+          const montoComision = valorMonto(ov.querySelector('#comisionInicialMonto').value);
+          if (montoComision > 0) cobro.comisionInicialMonto = montoComision;
+        }
+
+        if (editCobroId) await actions.updateCobro(alq.id, editCobroId, cobro);
+        else await actions.addCobro(alq.id, cobro);
         toast('Cobro registrado'); ctx.close(); onDone?.();
       });
     }
@@ -967,11 +1094,11 @@ export function openVentaForm(venta = null, onDone) {
         <h3 class="form-section-title" style="margin-top:1.25rem">Datos económicos</h3>
         <div class="form-grid">
           <div class="form-group"><label>Precio de venta <span class="req">*</span></label>
-            <input name="precio" type="number" min="0" value="${venta.precio||''}" required></div>
+            <input name="precio" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(venta.precio)}" required></div>
           <div class="form-group"><label>Moneda</label>
             <select name="moneda">${opts(MONEDAS, venta.moneda||'USD')}</select></div>
           <div class="form-group"><label>Seña</label>
-            <input name="sena" type="number" min="0" value="${venta.sena||''}"></div>
+            <input name="sena" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(venta.sena)}"></div>
           <div class="form-group"><label>Comisión (%)</label>
             <input name="comision" type="number" min="0" step="0.5" value="${venta.comision||''}"></div>
         </div>
@@ -1004,7 +1131,8 @@ export function openVentaForm(venta = null, onDone) {
         if (!f.propiedadId.value) { toast('Seleccioná una propiedad', { tipo: 'warning' }); return; }
         if (!f.precio.value) { toast('El precio es obligatorio', { tipo: 'warning' }); return; }
         const data = Object.fromEntries(new FormData(f).entries());
-        ['precio','sena','comision'].forEach(k => data[k] = data[k] ? Number(data[k]) : null);
+        data.comision = data.comision ? Number(data.comision) : null;
+        ['precio','sena'].forEach(k => data[k] = data[k] ? valorMonto(data[k]) : null);
         if (ed) { await actions.updateVenta(venta.id, data); toast('Venta actualizada'); }
         else { await actions.createVenta(data); toast('Venta registrada correctamente'); }
         ctx.close(); onDone?.();

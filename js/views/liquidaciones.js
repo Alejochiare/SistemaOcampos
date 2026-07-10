@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, actions, subscribe } from '../store.js';
 import { icon } from '../config.js';
-import { esc } from '../lib.js';
+import { esc, fmtMontoInput, valorMonto } from '../lib.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { imprimirLiquidacion } from '../imprimir.js';
@@ -72,7 +72,7 @@ function montarPagos(ctx, { getTotal }) {
         </div>
         <div class="form-group" style="margin:0;width:130px">
           <label style="font-size:.72rem">Monto $</label>
-          <input type="number" min="0" data-f="monto" value="${p.monto}">
+          <input type="text" inputmode="numeric" class="input-monto" data-f="monto" value="${fmtMontoInput(p.monto)}">
         </div>
         ${mostrarRef(p.metodoPago) ? `
         <div class="form-group" style="margin:0;flex:1;min-width:160px">
@@ -85,7 +85,7 @@ function montarPagos(ctx, { getTotal }) {
     blk.querySelectorAll('[data-pago-idx]').forEach(row => {
       const i = Number(row.dataset.pagoIdx);
       row.querySelector('[data-f="metodoPago"]').addEventListener('change', e => { pagos[i].metodoPago = e.target.value; render(); });
-      row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = e.target.value; resumen(); });
+      row.querySelector('[data-f="monto"]').addEventListener('input', e => { pagos[i].monto = valorMonto(e.target.value); resumen(); });
       row.querySelector('[data-f="referencia"]')?.addEventListener('input', e => { pagos[i].referencia = e.target.value; });
     });
     blk.querySelectorAll('[data-del-pago]').forEach(btn => {
@@ -447,11 +447,11 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
           </div>
           <div class="form-group">
             <label>Monto comisión $</label>
-            <input id="liqMontoHon" type="number" readonly style="background:var(--surface-2);font-weight:700">
+            <input id="liqMontoHon" type="text" readonly style="background:var(--surface-2);font-weight:700">
           </div>
           <div class="form-group">
             <label style="color:var(--success);font-weight:700">Total a pagar al propietario $</label>
-            <input name="totalPagar" id="liqTotal" type="number" style="font-size:1.1rem;font-weight:800;color:var(--success)">
+            <input name="totalPagar" id="liqTotal" type="text" inputmode="numeric" class="input-monto" style="font-size:1.1rem;font-weight:800;color:var(--success)">
           </div>
         </div>
 
@@ -483,10 +483,10 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         const pct  = Number(q('#liqPct').value) || 0;
         const hon  = Math.round(totalMonto * pct / 100);
         const desc = Array.from(q('#descBlk').querySelectorAll('[data-desc-monto]'))
-          .reduce((s, el) => s + (Number(el.value) || 0), 0);
+          .reduce((s, el) => s + valorMonto(el.value), 0);
         const total = totalMonto - hon - desc;
-        q('#liqMontoHon').value = hon;
-        q('#liqTotal').value = total;
+        q('#liqMontoHon').value = fmtMontoInput(hon);
+        q('#liqTotal').value = fmtMontoInput(total);
         pagosCtl?.refrescarTotal();
       };
 
@@ -495,11 +495,16 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         block.innerHTML = (q('#liqForm') || q('#liqGrupalForm')).descuentos?.map((d, i) => `
           <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem">
             <input type="text" placeholder="Concepto" value="${esc(d.concepto || '')}" data-desc-concepto="${i}" style="flex:1">
-            <input type="number" placeholder="Monto" value="${d.monto || 0}" data-desc-monto="${i}" min="0" style="width:100px" data-input>
+            <input type="text" inputmode="numeric" class="input-monto" placeholder="Monto" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}" style="width:100px">
             <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger)">${icon('trash')}</button>
           </div>`).join('') || '';
-        block.querySelectorAll('[data-input]').forEach(el => {
-          el.addEventListener('input', recalcular);
+        block.querySelectorAll('[data-desc-monto]').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = Number(el.dataset.descMonto);
+            const form = q('#liqForm') || q('#liqGrupalForm');
+            if (form.descuentos?.[idx]) form.descuentos[idx].monto = valorMonto(el.value);
+            recalcular();
+          });
         });
       };
 
@@ -525,9 +530,9 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         }
       });
 
-      q('#btnSoloGuardar').addEventListener('click', async () => {
+      const guardar = async (conPDF) => {
         const form = q('#liqGrupalForm');
-        const totalPagar = Number(q('#liqTotal').value) || 0;
+        const totalPagar = valorMonto(q('#liqTotal').value);
 
         const pagos = pagosCtl.getPagos();
         if (!pagos.length) { toast('Indicá la forma de pago', { tipo: 'warning' }); return; }
@@ -554,21 +559,35 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         // Guardar los IDs de cobros liquidados
         data.liquidadosCobros = grupo.cobros.map(item => item.cobro.id);
 
-        await actions.createLiquidacion(data);
+        const liq = await actions.createLiquidacion(data);
+
+        if (conPDF && liq) {
+          // Se llama de forma síncrona respecto al click para evitar que el navegador bloquee el pop-up
+          imprimirLiquidacion({
+            alq: {},
+            cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
+            inquilino: {},
+            propiedad: {},
+            propietario: own,
+            pctHonorarios: liq.pctHonorarios || 0,
+            descuentos: liq.descuentos || [],
+            formaPago: liq.formaPago || 'Efectivo',
+            pagos: liq.pagos || [],
+          });
+        }
+
         toast('Liquidación registrada');
         ctx.close();
         onDone?.();
-      });
+      };
 
-      q('#btnGuardarPDF').addEventListener('click', async () => {
-        q('#btnSoloGuardar').click();
-        // Luego genera PDF (implementar si es necesario)
-      });
+      q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
+      q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
 
       recalcular();
       renderDescs();
 
-      pagosCtl = montarPagos(ctx, { getTotal: () => Number(q('#liqTotal').value) || 0 });
+      pagosCtl = montarPagos(ctx, { getTotal: () => valorMonto(q('#liqTotal').value) });
       q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
     }
   });
@@ -612,11 +631,11 @@ export function abrirFormLiquidacion(pre, onDone) {
           </div>
           <div class="form-group">
             <label>Monto honorarios $</label>
-            <input id="liqMontoHon" type="number" readonly style="background:var(--surface-2);font-weight:700">
+            <input id="liqMontoHon" type="text" readonly style="background:var(--surface-2);font-weight:700">
           </div>
           <div class="form-group">
             <label style="color:var(--success);font-weight:700">Total a pagar al propietario $</label>
-            <input name="totalPagar" id="liqTotal" type="number" style="font-size:1.1rem;font-weight:800;color:var(--success)">
+            <input name="totalPagar" id="liqTotal" type="text" inputmode="numeric" class="input-monto" style="font-size:1.1rem;font-weight:800;color:var(--success)">
           </div>
         </div>
 
@@ -648,9 +667,9 @@ export function abrirFormLiquidacion(pre, onDone) {
         const pct  = Number(q('#liqPct').value) || 0;
         const hon  = Math.round(monto * pct / 100);
         const desc = [...ctx.overlay.querySelectorAll('[name^="desc_monto"]')]
-          .reduce((s, i) => s + (Number(i.value) || 0), 0);
-        q('#liqMontoHon').value = hon;
-        q('#liqTotal').value    = Math.max(0, monto - hon - desc);
+          .reduce((s, i) => s + valorMonto(i.value), 0);
+        q('#liqMontoHon').value = fmtMontoInput(hon);
+        q('#liqTotal').value    = fmtMontoInput(Math.max(0, monto - hon - desc));
         pagosCtl?.refrescarTotal();
       };
       recalcular();
@@ -670,7 +689,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           </div>
           <div class="form-group" style="flex:1;margin:0">
             <label style="font-size:.75rem">Monto $</label>
-            <input name="desc_monto_${idx}" type="number" min="0">
+            <input name="desc_monto_${idx}" type="text" inputmode="numeric" class="input-monto">
           </div>
           <button type="button" class="btn btn-xs btn-ghost" style="color:var(--danger);margin-bottom:.1rem" data-rm>${icon('trash')}</button>`;
         blk.appendChild(div);
@@ -684,7 +703,7 @@ export function abrirFormLiquidacion(pre, onDone) {
         const f = q('#liqForm');
         if (!f.fechaPago.value) { toast('Indicá la fecha de pago', { tipo: 'warning' }); return; }
 
-        const totalPagar = Number(f.totalPagar.value) || 0;
+        const totalPagar = valorMonto(f.totalPagar.value);
         const pagos = pagosCtl.getPagos();
         if (!pagos.length) { toast('Indicá la forma de pago', { tipo: 'warning' }); return; }
         if (pagos.length > 1) {
@@ -697,7 +716,7 @@ export function abrirFormLiquidacion(pre, onDone) {
 
         const descuentos = [...ctx.overlay.querySelectorAll('.desc-row')].map((row, i) => ({
           concepto: row.querySelector('[name^="desc_concepto"]')?.value || '',
-          monto:    Number(row.querySelector('[name^="desc_monto"]')?.value) || 0,
+          monto:    valorMonto(row.querySelector('[name^="desc_monto"]')?.value),
         })).filter(d => d.concepto && d.monto);
 
         const data = {
@@ -708,7 +727,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           mes:            cobro.mes,
           montoAlquiler:  monto,
           pctHonorarios:  Number(f.pctHonorarios.value) || 0,
-          montoHonorarios:Number(q('#liqMontoHon').value) || 0,
+          montoHonorarios:valorMonto(q('#liqMontoHon').value),
           totalPagar,
           descuentos,
           estado:    'pagada',
@@ -724,37 +743,32 @@ export function abrirFormLiquidacion(pre, onDone) {
         }
 
         const liq = await actions.createLiquidacion(data);
+
+        if (conPDF && liq) {
+          // Se llama de forma síncrona respecto al click para evitar que el navegador bloquee el pop-up
+          const cobroSint = { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago };
+          imprimirLiquidacion({
+            alq,
+            cobro: cobroSint,
+            inquilino: inq,
+            propiedad: prop,
+            propietario: own,
+            pctHonorarios: liq.pctHonorarios || 0,
+            descuentos: liq.descuentos || [],
+            formaPago: liq.formaPago || 'Efectivo',
+            pagos: liq.pagos || [],
+          });
+        }
+
         toast('Liquidación registrada');
         ctx.close();
         onDone?.();
-
-        if (conPDF) {
-          setTimeout(() => {
-            const { liquidaciones: list, alquileres: alqs, clientes, propietarios, propiedades } = getState();
-            // Buscar la recién creada
-            const l    = (list || []).find(x => x.cobroId === cobro.id);
-            if (!l) return;
-            const a2   = alqs.find(x => x.id === l.alquilerId) || {};
-            const cobroSint = { monto: l.montoAlquiler, mes: l.mes, fechaPago: l.fechaPago };
-            imprimirLiquidacion({
-              alq: a2,
-              cobro: cobroSint,
-              inquilino: clientes.find(c => c.id === a2.inquilinoId) || {},
-              propiedad: propiedades.find(p => p.id === l.propiedadId) || {},
-              propietario: propietarios.find(p => p.id === l.propietarioId) || {},
-              pctHonorarios: l.pctHonorarios || 0,
-              descuentos: l.descuentos || [],
-              formaPago: l.formaPago || 'Efectivo',
-              pagos: l.pagos || [],
-            });
-          }, 300);
-        }
       };
 
       q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
       q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
 
-      pagosCtl = montarPagos(ctx, { getTotal: () => Number(q('#liqTotal').value) || 0 });
+      pagosCtl = montarPagos(ctx, { getTotal: () => valorMonto(q('#liqTotal').value) });
       q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
     },
   });

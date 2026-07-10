@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, actions, subscribe } from '../store.js';
 import { icon } from '../config.js';
-import { fmtFechaCorta } from '../lib.js';
+import { fmtFechaCorta, valorMonto } from '../lib.js';
 import { openModal } from '../components/modal.js';
 
 const METODOS = [
@@ -30,6 +30,8 @@ function formatearFechaHora(fecha, hora) {
 function etiquetaOrigen(origen) {
   switch (origen) {
     case 'cobro-alquiler': return 'Cobro de alquiler';
+    case 'comision-inicial': return 'Comisión inicial';
+    case 'cancelacion-contrato': return 'Cargo por cancelación';
     case 'liquidacion': return 'Pago a propietario';
     case 'venta': return 'Venta';
     case 'manual': return 'Registro manual';
@@ -245,7 +247,7 @@ function openMovForm(cajaId, tipoInicial = 'ingreso') {
         <!-- Monto -->
         <div>
           <label class="form-label">Monto <span style="color:var(--danger)">*</span></label>
-          <input id="movMonto" class="input" type="number" min="0" step="0.01" placeholder="0">
+          <input id="movMonto" class="input input-monto" type="text" inputmode="numeric" placeholder="0">
         </div>
 
         <!-- Método de pago -->
@@ -309,7 +311,7 @@ function openMovForm(cajaId, tipoInicial = 'ingreso') {
       overlay.querySelector('#btnGuardarMov').addEventListener('click', async () => {
         const tipo     = tipInput.value;
         const concepto = overlay.querySelector('#movConcepto').value.trim();
-        const monto    = parseFloat(overlay.querySelector('#movMonto').value);
+        const monto    = valorMonto(overlay.querySelector('#movMonto').value);
         const metodoPago = overlay.querySelector('#movMetodo').value;
         const nota     = overlay.querySelector('#movNota').value.trim();
 

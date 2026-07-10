@@ -49,7 +49,7 @@ function alertasAuto() {
   const alerts = [];
 
   alquileres.forEach(alq => {
-    if (alq.estado === 'rescindido') return;
+    if (alq.estado === 'rescindido' || alq.estado === 'renovado') return;
     const inq  = clientes.find(c => c.id === alq.inquilinoId);
     const prop = propiedades.find(p => p.id === alq.propiedadId);
     const nombre = inq?.nombre || '—';
@@ -63,7 +63,7 @@ function alertasAuto() {
     }
 
     // Cobros impagos
-    const impagos = (alq.cobros || []).filter(c => !c.pagado && c.mes <= hoy.slice(0,7));
+    const impagos = sel.cobrosImpagosMes(alq);
     if (impagos.length) {
       const id = `deuda_${alq.id}_${hoy.slice(0,7)}`;
       alerts.push({ id, titulo: `Pago pendiente — ${nombre}`, cuerpo: `${impagos.length} mes${impagos.length!==1?'es':''} sin cobrar · ${dir}`, alqId: alq.id, fecha: hoy });

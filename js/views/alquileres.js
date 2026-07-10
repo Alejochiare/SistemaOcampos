@@ -2,14 +2,15 @@
    VISTA · Alquileres — contratos activos, cobros y vencimientos
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
-import { icon, CONTRATO_ESTADOS } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta } from '../lib.js';
+import { icon, CONTRATO_ESTADOS, MONEDAS } from '../config.js';
+import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto } from '../lib.js';
 import { navegar } from '../router.js';
-import { openAlquilerForm, openCobroForm } from './_forms.js';
+import { openAlquilerForm, openCobroForm, openRenovacionForm } from './_forms.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
-import { imprimirRecibo, imprimirLiquidacion, getAgencia, setAgencia } from '../imprimir.js';
+import { imprimirRecibo, imprimirLiquidacion, imprimirFacturaDeuda, getAgencia, setAgencia } from '../imprimir.js';
 import { abrirFormLiquidacion } from './liquidaciones.js';
+import { getUltimoIndice, calcularVariacionICL, calcularVariacionIPC } from '../indices.js';
 
 export default function alquileres(root, param) {
   if (param) return alqDetalle(root, param);
@@ -31,13 +32,13 @@ export default function alquileres(root, param) {
 function pintarLista(el, filtro) {
   const { alquileres, clientes, propiedades } = getState();
 
-  const activos = alquileres.filter(a => a.estado !== 'rescindido' && sel.diasAlVencimiento(a) >= 0);
+  const activos = alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) >= 0);
 
   // Contadores para los badges
   const cntVencer   = activos.filter(a => { const d = sel.diasAlVencimiento(a); return d >= 0 && d <= 90; }).length;
   const cntAumento  = activos.filter(a => (sel.infoAjuste(a)?.pendientes || 0) > 0).length;
   const cntDeuda    = activos.filter(a => sel.cobrosImpagosMes(a).length > 0).length;
-  const cntVencidos = alquileres.filter(a => a.estado !== 'rescindido' && sel.diasAlVencimiento(a) < 0).length;
+  const cntVencidos = alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) < 0).length;
 
   const FILTROS = [
     { id: '',         label: 'Todos',            cnt: activos.length },
@@ -53,7 +54,7 @@ function pintarLista(el, filtro) {
   if      (filtro === 'vencer')   lista = baseActivos.filter(a => { const d = sel.diasAlVencimiento(a); return d >= 0 && d <= 90; });
   else if (filtro === 'aumento')  lista = baseActivos.filter(a => (sel.infoAjuste(a)?.pendientes || 0) > 0);
   else if (filtro === 'deuda')    lista = baseActivos.filter(a => sel.cobrosImpagosMes(a).length > 0);
-  else if (filtro === 'vencidos') lista = alquileres.filter(a => a.estado !== 'rescindido' && sel.diasAlVencimiento(a) < 0).sort((a, b) => sel.diasAlVencimiento(a) - sel.diasAlVencimiento(b));
+  else if (filtro === 'vencidos') lista = alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) < 0).sort((a, b) => sel.diasAlVencimiento(a) - sel.diasAlVencimiento(b));
   else                            lista = baseActivos;
 
   const pillStyle = (activo) => activo
@@ -226,6 +227,7 @@ function pintarDetalle(el, id) {
         ${filaInline('Ajuste', a.tipoAjuste ? `${a.tipoAjuste}${a.porcentajeAjuste ? ' · ' + a.porcentajeAjuste + '%' : ''} · c/${a.frecuenciaAjuste} meses` : null)}
         ${filaInline('Depósito', fmtMoneda(a.deposito, a.moneda))}
         ${filaInline('Comisión', a.comision ? `${a.comision}%` : null)}
+        ${filaInline('Comisión inicial', a.comisionInicial ? (a.comisionInicialCobrada ? 'Cobrada' : 'Pendiente') : null)}
       </div>
 
       <!-- Inquilino con WhatsApp -->
@@ -242,23 +244,23 @@ function pintarDetalle(el, id) {
         </div>
       </div>
 
-      <!-- Garante con WhatsApp -->
-      ${(a.garante || a.garanteDni || a.garanteTelefono) ? `
+      <!-- Garantes con WhatsApp -->
+      ${garantesDeAlquiler(a).map((g, i, arr) => `
       <div style="border-top:1px solid var(--border);margin:0 1.25rem;padding:.75rem 0 .25rem">
-        <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-soft);font-weight:600;margin-bottom:.6rem">Garante</div>
+        <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-soft);font-weight:600;margin-bottom:.6rem">Garante${arr.length > 1 ? ` ${i + 1}` : ''}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:.4rem .75rem;flex:1">
-            ${filaInline('Nombre', a.garante)}
-            ${filaInline('DNI / CUIT', a.garanteDni)}
-            ${filaInline('Teléfono', a.garanteTelefono)}
-            ${filaInline('Email', a.garanteEmail)}
-            ${filaInline('Domicilio', a.garanteDomicilio)}
-            ${filaInline('Relación', a.garanteRelacion)}
-            ${filaInline('Propiedad en garantía', a.garantePropiedad)}
+            ${filaInline('Nombre', g.nombre)}
+            ${filaInline('DNI / CUIT', g.dni)}
+            ${filaInline('Teléfono', g.telefono)}
+            ${filaInline('Email', g.email)}
+            ${filaInline('Domicilio', g.domicilio)}
+            ${filaInline('Relación', g.relacion)}
+            ${filaInline('Propiedad en garantía', g.propiedadGarantia)}
           </div>
-          ${(() => { const tel = (a.garanteTelefono || '').replace(/\D/g,''); const num = tel ? (tel.startsWith('54')?tel:'54'+tel) : null; return num ? `<a href="https://wa.me/${num}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.4rem;text-decoration:none;flex-shrink:0">${icon('whatsapp')} WhatsApp</a>` : ''; })()}
+          ${(() => { const tel = (g.telefono || '').replace(/\D/g,''); const num = tel ? (tel.startsWith('54')?tel:'54'+tel) : null; return num ? `<a href="https://wa.me/${num}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.4rem;text-decoration:none;flex-shrink:0">${icon('whatsapp')} WhatsApp</a>` : ''; })()}
         </div>
-      </div>` : ''}
+      </div>`).join('')}
 
       <div style="height:.5rem"></div>
       <div style="padding:.25rem 1.25rem .9rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
@@ -268,6 +270,56 @@ function pintarDetalle(el, id) {
         ${a.notas ? `<span class="text-soft" style="font-size:.82rem">📝 ${esc(a.notas)}</span>` : ''}
       </div>
     </div>
+
+    <!-- Banner CONTRATO RENOVADO -->
+    ${a.estado === 'renovado' ? `
+    <div style="
+      margin-bottom:1.25rem;padding:1rem 1.25rem;border-radius:var(--r-md);
+      background:color-mix(in srgb,var(--info) 12%,transparent);
+      border:2px solid var(--info);display:flex;align-items:center;gap:1rem;flex-wrap:wrap
+    ">
+      <div style="font-size:1.5rem">🔄</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:700;font-size:.95rem">Este contrato fue renovado</div>
+        <div style="font-size:.82rem;color:var(--text-soft);margin-top:.2rem">Ya existe un nuevo contrato vigente para esta propiedad.</div>
+      </div>
+      ${a.renovadoEnId ? `<button class="btn btn-primary" id="btnVerRenovacion" style="flex-shrink:0">Ver contrato nuevo →</button>` : ''}
+    </div>` : ''}
+
+    <!-- Banner CONTRATO CANCELADO -->
+    ${a.estado === 'rescindido' ? `
+    <div style="
+      margin-bottom:1.25rem;padding:1rem 1.25rem;border-radius:var(--r-md);
+      background:var(--surface-2);border:2px solid var(--border);display:flex;align-items:center;gap:1rem;flex-wrap:wrap
+    ">
+      <div style="font-size:1.5rem">🚫</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:700;font-size:.95rem">Contrato cancelado</div>
+        <div style="font-size:.82rem;color:var(--text-soft);margin-top:.2rem">
+          ${a.fechaCancelacion ? `Cancelado el ${fmtFechaCorta(a.fechaCancelacion)}` : 'Este contrato fue cancelado.'} · La propiedad quedó disponible.
+        </div>
+      </div>
+    </div>` : ''}
+
+    <!-- Banner POR VENCER / VENCIDO -->
+    ${a.estado === 'activo' && (estado === 'por_vencer' || estado === 'vencido') ? `
+    <div style="
+      margin-bottom:1.25rem;padding:1rem 1.25rem;border-radius:var(--r-md);
+      background:color-mix(in srgb,var(--danger) 12%,transparent);
+      border:2px solid var(--danger);display:flex;align-items:center;gap:1rem;flex-wrap:wrap
+    ">
+      <div style="font-size:1.5rem">⏳</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:700;font-size:.95rem">${estado === 'vencido' ? 'Contrato vencido' : 'Contrato por vencer'}</div>
+        <div style="font-size:.82rem;color:var(--text-soft);margin-top:.2rem">
+          ${estado === 'vencido' ? `Venció hace ${Math.abs(dias)} día${Math.abs(dias)!==1?'s':''}` : `Faltan ${dias} día${dias!==1?'s':''} para el vencimiento`} · ¿Renovás el contrato o lo cancelás?
+        </div>
+      </div>
+      <div style="display:flex;gap:.6rem;flex-shrink:0">
+        <button class="btn btn-ghost" id="btnCancelarAlqBanner" style="border:1.5px solid var(--danger);color:var(--danger)">Cancelar contrato</button>
+        <button class="btn btn-primary" id="btnRenovarAlqBanner" style="background:var(--danger);border-color:var(--danger)">Renovar contrato</button>
+      </div>
+    </div>` : ''}
 
     <!-- Banner AUMENTO -->
     ${ajInfo && ajInfo.pendientes > 0 ? `
@@ -342,9 +394,11 @@ function pintarDetalle(el, id) {
       </div>
     </div>` : ''}
 
-    <div style="padding-top:.75rem;border-top:1px solid var(--border);display:flex;gap:1rem">
-      <button class="btn btn-ghost" id="btnRescindirAlq">${icon('x')} Rescindir contrato</button>
-      <button class="btn" id="btnEliminarAlq" style="background:var(--danger);color:#fff">${icon('trash')} Eliminar</button>
+    <div style="padding-top:.75rem;border-top:1px solid var(--border);display:flex;gap:1rem;flex-wrap:wrap">
+      ${a.estado === 'activo' ? `
+      <button class="btn btn-ghost" id="btnRenovarAlq">${icon('refresh')} Renovar contrato</button>
+      <button class="btn btn-ghost" id="btnCancelarAlq" style="color:var(--danger)">${icon('x')} Cancelar contrato</button>` : ''}
+      <button class="btn" id="btnEliminarAlq" style="background:var(--danger);color:#fff;margin-left:auto">${icon('trash')} Eliminar</button>
     </div>`;
 
   /* ── Eventos ─────────────────────────────────────────── */
@@ -383,7 +437,16 @@ function pintarDetalle(el, id) {
   el.querySelectorAll('[data-cob-pagar]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await actions.updateCobro(id, btn.dataset.cobPagar, {
+      const cobroId = btn.dataset.cobPagar;
+      const cobro = (a.cobros || []).find(c => c.id === cobroId);
+      const esPrimeraCuota = cobro && cobro.mes === (a.fechaInicio || '').slice(0, 7);
+      const necesitaComision = esPrimeraCuota && a.comisionInicial && !a.comisionInicialCobrada && cobro.comisionInicialMonto == null;
+      if (necesitaComision) {
+        // Abrir el modal para poder cargar el monto de la comisión antes de confirmar el cobro
+        openCobroForm(a, () => {}, { mes: cobro.mes, monto: cobro.monto, cobroId: cobro.id });
+        return;
+      }
+      await actions.updateCobro(id, cobroId, {
         pagado: true, fechaPago: new Date().toISOString().slice(0,10)
       });
     });
@@ -397,14 +460,138 @@ function pintarDetalle(el, id) {
     });
   });
 
-  el.querySelector('#btnRescindirAlq')?.addEventListener('click', async () => {
-    if (!confirm('¿Rescindir este contrato?')) return;
-    await actions.updateAlquiler(id, { estado: 'rescindido' });
-  });
+  const abrirRenovacion = () => {
+    try {
+      openRenovacionForm(a, (nuevo) => navegar(`alquileres/${nuevo?.id || id}`));
+    } catch (err) {
+      console.error('Error al abrir el formulario de renovación:', err);
+      toast(`No se pudo abrir la renovación: ${err.message || err}`, { tipo: 'danger' });
+    }
+  };
+  el.querySelector('#btnRenovarAlq')?.addEventListener('click', abrirRenovacion);
+  el.querySelector('#btnRenovarAlqBanner')?.addEventListener('click', abrirRenovacion);
+  el.querySelector('#btnCancelarAlq')?.addEventListener('click', () => abrirCancelacionModal(a));
+  el.querySelector('#btnCancelarAlqBanner')?.addEventListener('click', () => abrirCancelacionModal(a));
+  el.querySelector('#btnVerRenovacion')?.addEventListener('click', () => { if (a.renovadoEnId) navegar(`alquileres/${a.renovadoEnId}`); });
   el.querySelector('#btnEliminarAlq')?.addEventListener('click', async () => {
     if (!confirm('¿Eliminar este contrato?')) return;
     await actions.deleteAlquiler(id);
     navegar('alquileres');
+  });
+}
+
+const METODOS_CANCELACION = [
+  { id: 'efectivo',      label: 'Efectivo' },
+  { id: 'transferencia', label: 'Transferencia' },
+  { id: 'cheque',        label: 'Cheque' },
+  { id: 'debito',        label: 'Débito' },
+  { id: 'credito',       label: 'Crédito' },
+  { id: 'otro',          label: 'Otro' },
+];
+
+/* ── Modal de cancelación de contrato (muestra deuda pendiente si la hay) ── */
+function abrirCancelacionModal(a) {
+  const { clientes, propiedades, propietarios } = getState();
+  const inq  = clientes.find(c => c.id === a.inquilinoId);
+  const prop = propiedades.find(p => p.id === a.propiedadId);
+  const own  = propietarios.find(p => p.id === a.propietarioId);
+
+  const cobrosPend = sel.cobrosImpagosMes(a);
+  const totalDeuda = cobrosPend.reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
+  openModal({
+    title: 'Cancelar contrato',
+    bodyHTML: `
+      ${cobrosPend.length ? `
+        <div style="padding:.9rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid var(--danger);margin-bottom:1rem">
+          <div style="font-weight:700;color:var(--danger);margin-bottom:.4rem">⚠ Este contrato tiene cobros pendientes</div>
+          <div style="font-size:.85rem;color:var(--text-soft)">
+            ${cobrosPend.length} mes${cobrosPend.length!==1?'es':''} sin cobrar por un total de <strong>${fmtMoneda(totalDeuda, a.moneda)}</strong>.
+          </div>
+        </div>` : `
+        <div style="padding:.9rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--success) 10%,transparent);border:1px solid var(--success);margin-bottom:1rem">
+          <div style="font-weight:700;color:var(--success)">✓ Sin cobros pendientes</div>
+        </div>`}
+
+      <div style="padding:.9rem 1rem;border-radius:var(--r-md);background:var(--surface-2);border:1px solid var(--border);margin-bottom:1rem">
+        <div style="font-weight:700;margin-bottom:.5rem">Cargo adicional (opcional)</div>
+        <div style="font-size:.8rem;color:var(--text-soft);margin-bottom:.6rem">
+          Por ejemplo, una multa por rescisión anticipada si el contrato se cancela antes de la fecha de vencimiento.
+        </div>
+        <div class="form-grid">
+          <div class="form-group full"><label>Concepto</label>
+            <input id="cancConcepto" value="Multa por rescisión anticipada"></div>
+          <div class="form-group"><label>Monto</label>
+            <input id="cancMonto" type="text" inputmode="numeric" class="input-monto" placeholder="0"></div>
+          <div class="form-group"><label>Moneda</label>
+            <select id="cancMoneda">${MONEDAS.map(m => `<option value="${m}" ${m === 'ARS' ? 'selected' : ''}>${m}</option>`).join('')}</select>
+            <div style="font-size:.72rem;color:var(--text-faint);margin-top:.2rem">Puede ser distinta a la moneda del contrato (${a.moneda || 'ARS'}).</div>
+          </div>
+          <div class="form-group"><label>Forma de pago</label>
+            <select id="cancMetodoPago">${METODOS_CANCELACION.map(m => `<option value="${m.id}">${m.label}</option>`).join('')}</select>
+          </div>
+          <div class="form-group full" id="cancRefBlk" style="display:none"><label>Referencia</label>
+            <input id="cancReferencia" placeholder="Ej: N° de transferencia, banco...">
+          </div>
+        </div>
+      </div>
+
+      <p style="font-size:.88rem;color:var(--text-soft)">
+        Al cancelar, el contrato queda marcado como rescindido, la propiedad pasa a estar <strong>disponible</strong>
+        automáticamente (si no tiene otro contrato activo), y se genera un comprobante con la deuda pendiente y el cargo adicional si corresponde.
+        El cargo adicional se registra como ingreso en la caja del día.
+      </p>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Volver</button>
+                 <button class="btn" id="btnConfirmarCancelacion" style="background:var(--danger);color:#fff">Cancelar contrato</button>`,
+    onMount(ctx) {
+      const mostrarRef = (m) => ['transferencia', 'cheque'].includes(m);
+      const metodoSel = ctx.overlay.querySelector('#cancMetodoPago');
+      const refBlk = ctx.overlay.querySelector('#cancRefBlk');
+      const actualizarRef = () => { refBlk.style.display = mostrarRef(metodoSel.value) ? '' : 'none'; };
+      metodoSel.addEventListener('change', actualizarRef);
+      actualizarRef();
+
+      ctx.overlay.querySelector('#btnConfirmarCancelacion').addEventListener('click', async () => {
+        try {
+          const conceptoMulta = ctx.overlay.querySelector('#cancConcepto').value.trim() || 'Multa por rescisión anticipada';
+          const montoMulta = valorMonto(ctx.overlay.querySelector('#cancMonto').value);
+          const monedaMulta = ctx.overlay.querySelector('#cancMoneda').value;
+          const metodoPagoMulta = metodoSel.value;
+          const referenciaMulta = ctx.overlay.querySelector('#cancReferencia').value.trim();
+
+          await actions.cancelarAlquiler(a.id);
+
+          if (montoMulta > 0) {
+            const diaHoy = await actions.cajaHoy();
+            await actions.addMovimiento(diaHoy.id, {
+              tipo: 'ingreso',
+              concepto: `${conceptoMulta} (${monedaMulta}) • ${inq?.nombre || 'Inquilino'} • ${prop?.direccion || 'Propiedad'}`,
+              monto: montoMulta,
+              metodoPago: metodoPagoMulta,
+              nota: [referenciaMulta, 'Cancelación de contrato'].filter(Boolean).join(' · '),
+              origen: 'cancelacion-contrato',
+              refTipo: 'alquiler',
+              refId: a.id,
+              moneda: monedaMulta,
+            });
+          }
+
+          const itemsFactura = cobrosPend.map(c => ({ ...c, moneda: a.moneda || 'ARS' }));
+          if (montoMulta > 0) itemsFactura.push({ concepto: conceptoMulta, monto: montoMulta, moneda: monedaMulta });
+
+          if (itemsFactura.length) {
+            imprimirFacturaDeuda({ alq: a, inquilino: inq, propiedad: prop, propietario: own, cobrosPendientes: itemsFactura });
+            toast('Contrato cancelado — se generó el comprobante');
+          } else {
+            toast('Contrato cancelado — la propiedad quedó disponible');
+          }
+          ctx.close();
+        } catch (err) {
+          console.error(err);
+          toast(`Error al cancelar el contrato: ${err.message || err}`, { tipo: 'danger' });
+        }
+      });
+    }
   });
 }
 
@@ -718,27 +905,6 @@ function renderMesCobro(m, a) {
   </div>`;
 }
 
-/* ── Caché local de índices (por tipo + mes) ─────────────── */
-const KEY_INDICES = 'inmocrm_indices';
-function getIndicesCache() { try { return JSON.parse(localStorage.getItem(KEY_INDICES) || '{}'); } catch { return {}; } }
-function setIndiceCache(tipo, mes, pct) {
-  const c = getIndicesCache();
-  c[`${tipo}_${mes}`] = { pct, mes };
-  localStorage.setItem(KEY_INDICES, JSON.stringify(c));
-}
-function getUltimoIndice(tipo) {
-  const c = getIndicesCache();
-  const mesActual = new Date().toISOString().slice(0, 7);
-  // Primero busca el mes actual, luego el más reciente guardado
-  const key = `${tipo}_${mesActual}`;
-  if (c[key]) return c[key];
-  // Busca el más reciente de ese tipo
-  const entradas = Object.entries(c)
-    .filter(([k]) => k.startsWith(tipo + '_'))
-    .sort(([, a], [, b]) => b.mes.localeCompare(a.mes));
-  return entradas[0]?.[1] || null;
-}
-
 /* ── Modal registrar aumento ────────────────────────────── */
 function openAumentoModal(a) {
   const montoActual = a.montoActual ?? a.montoInicial ?? 0;
@@ -758,6 +924,15 @@ function openAumentoModal(a) {
   const linkFuente = tipo === 'IPC'
     ? 'https://www.indec.gob.ar/indec/web/Nivel4-Tema-3-5-31'
     : 'https://www.bcra.gob.ar/PublicacionesEstadisticas/Principales_variables.asp';
+
+  const indiceActual = esIndice ? getUltimoIndice(tipo) : null;
+
+  // Período real de este contrato: desde el último ajuste aplicado (o el inicio
+  // del contrato si todavía no tuvo ninguno) hasta hoy — es lo que determina el
+  // % real a aplicar, no un genérico "% mensual".
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const ultimoAjusteAplicado = (a.historialAjustes || []).at(-1);
+  const fechaDesdeAjuste = ultimoAjusteAplicado?.fecha || a.fechaInicio;
 
   // Cuántos ajustes de este contrato ya deberían haberse aplicado según la
   // frecuencia pactada (ej: contrato de 12 meses, ajuste c/4 meses → 3 pendientes).
@@ -781,20 +956,35 @@ function openAumentoModal(a) {
         ${esIndice ? `
         <div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
-            <label class="form-label" style="margin:0">% ${tipo} del período</label>
+            <label class="form-label" style="margin:0">Ajuste por ${tipo}</label>
             <a href="${linkFuente}" target="_blank" rel="noopener"
               style="font-size:.75rem;color:var(--primary);text-decoration:none">Ver en ${tipo === 'IPC' ? 'INDEC' : 'BCRA'} →</a>
           </div>
-          <div id="indiceStatus" style="font-size:.75rem;margin-bottom:.4rem;min-height:1rem"></div>
+          <div style="padding:.6rem .75rem;background:var(--surface-2);border-radius:var(--r-md);margin-bottom:.6rem">
+            <div style="font-size:.68rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.2rem">% real desde ${fmtFechaCorta(fechaDesdeAjuste)} hasta hoy</div>
+            <div id="indiceRealVal" style="font-size:1.3rem;font-weight:800;color:var(--primary)">${fechaDesdeAjuste ? 'Calculando…' : '—'}</div>
+            <div style="font-size:.68rem;color:var(--text-faint);margin-top:.1rem">Variación acumulada real del índice para este contrato (no es el % mensual genérico)</div>
+          </div>
+          <div>
+            <label style="font-size:.68rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:.2rem">% a aplicar</label>
+            <div style="display:flex;align-items:center;gap:.4rem">
+              <input id="pctIndice" class="input" type="number" min="0" step="0.01" value="${indiceActual ? indiceActual.pct : ''}"
+                style="flex:1;font-size:1.2rem;font-weight:700;text-align:center;height:2.65rem">
+              <span style="color:var(--text-soft)">%</span>
+            </div>
+            <div style="font-size:.68rem;color:var(--text-faint);margin-top:.2rem">Precargado con el % mensual (${indiceActual ? indiceActual.pct + '%, ' + mesLabel(indiceActual.mes) : 'sin datos'}) — se actualiza solo al calcular el % real, y siempre lo podés modificar vos.</div>
+          </div>
+        </div>` : `
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+            <label class="form-label" style="margin:0">% de aumento</label>
+            <span style="font-size:.75rem;color:var(--text-soft)">Pactado en el contrato: <strong>${pctFijo}%</strong></span>
+          </div>
           <div style="display:flex;align-items:center;gap:.5rem">
-            <input id="pctIndice" class="input" type="number" min="0" step="0.01"
+            <input id="pctFijoInput" class="input" type="number" min="0" step="0.1" value="${pctFijo}"
               style="flex:1;font-size:1.3rem;font-weight:700;text-align:center;height:3rem">
             <span style="color:var(--text-soft)">%</span>
           </div>
-        </div>` : `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:var(--success-soft);border-radius:var(--r-md)">
-          <span style="font-size:.875rem;color:var(--success)">Porcentaje pactado en el contrato</span>
-          <span style="font-size:1.05rem;font-weight:800;color:var(--success)">+${pctFijo}%</span>
         </div>`}
 
         <div>
@@ -834,15 +1024,14 @@ function openAumentoModal(a) {
 
     onMount({ overlay, close }) {
       const $pctIndice    = overlay.querySelector('#pctIndice');
+      const $pctFijo      = overlay.querySelector('#pctFijoInput');
       const $pctAdicional = overlay.querySelector('#pctAdicional');
       const $nuevoMonto   = overlay.querySelector('#nuevoMonto'); // div, no input
-      const $status       = overlay.querySelector('#indiceStatus');
 
       let _montoCalculado = montoInicial || 0;
-      let _editoManual = false;
 
       const recalcular = () => {
-        const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : pctFijo;
+        const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : (parseFloat($pctFijo?.value) || 0);
         const pctExtra = parseFloat($pctAdicional?.value) || 0;
         const pctTotal = pctBase + pctExtra;
         _montoCalculado = calcNuevoMonto(pctBase, pctExtra);
@@ -851,35 +1040,41 @@ function openAumentoModal(a) {
         }
       };
 
-      // Cargar desde caché local al abrir
-      if (esIndice && $pctIndice && $status) {
-        const cached = getUltimoIndice(tipo);
-        const mesActual = new Date().toISOString().slice(0, 7);
-        if (cached) {
-          $pctIndice.value = cached.pct;
-          const esMesActual = cached.mes === mesActual;
-          $status.innerHTML = esMesActual
-            ? `<span style="color:var(--success);font-weight:600">✓ Último ${tipo} guardado: ${cached.pct}% (${cached.mes})</span>`
-            : `<span style="color:var(--warning)">⚠ Último guardado: ${cached.pct}% (${cached.mes}) — verificá si hay uno nuevo</span>`;
-          _editoManual = false;
-          recalcular();
-        } else {
-          $status.innerHTML = `<span style="color:var(--text-soft)">Ingresá el % del ${tipo} y se recordará para la próxima vez.</span>`;
-          $pctIndice.focus();
-        }
-      }
+      if (esIndice) recalcular();
+      if (esIndice && !indiceActual) $pctIndice?.focus();
 
       $pctIndice?.addEventListener('input', recalcular);
+      $pctFijo?.addEventListener('input', recalcular);
       $pctAdicional?.addEventListener('input', recalcular);
 
       if (esFijo) recalcular();
+
+      // Calcular el % real del período (desde el último ajuste hasta hoy) vía API.
+      // Si el input todavía tiene el valor mensual precargado (sin tocar), se
+      // reemplaza por el real; si el usuario ya lo modificó, se lo respeta.
+      if (esIndice && fechaDesdeAjuste) {
+        const valorPrecargado = $pctIndice?.value || '';
+        const fnCalc = tipo === 'IPC' ? calcularVariacionIPC : calcularVariacionICL;
+        fnCalc(fechaDesdeAjuste, hoyISO).then(pctReal => {
+          const $val = overlay.querySelector('#indiceRealVal');
+          if ($val) $val.textContent = `${pctReal}%`;
+          if ($pctIndice && $pctIndice.value === valorPrecargado) {
+            $pctIndice.value = pctReal;
+            recalcular();
+          }
+        }).catch(err => {
+          console.warn(`[aumento] No se pudo calcular el % real de ${tipo}:`, err);
+          const $val = overlay.querySelector('#indiceRealVal');
+          if ($val) $val.textContent = 'No disponible';
+        });
+      }
 
 
       overlay.querySelector('[data-cancel]').addEventListener('click', close);
 
       overlay.querySelector('#btnConfAumento').addEventListener('click', async () => {
         const nota     = overlay.querySelector('#notaAumento').value.trim();
-        const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : pctFijo;
+        const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : (parseFloat($pctFijo?.value) || 0);
         const pctExtra = parseFloat($pctAdicional?.value) || 0;
 
         if (_montoCalculado <= 0) {
@@ -888,9 +1083,6 @@ function openAumentoModal(a) {
         }
         if (_montoCalculado <= montoActual) {
           if (!confirm(`El nuevo monto es igual o menor al actual. ¿Confirmar igual?`)) return;
-        }
-        if (esIndice && pctBase > 0) {
-          setIndiceCache(tipo, new Date().toISOString().slice(0, 7), pctBase);
         }
         const notaAuto = nota || `Ajuste ${tipo} ${pctBase}%${pctExtra ? ` + ${pctExtra}% adicional` : ''}`;
         await actions.registrarAumento(a.id, _montoCalculado, notaAuto);
@@ -918,8 +1110,9 @@ function fila(label, val) {
 
 /* ---- Vista contrato completo (solo lectura) ---- */
 function abrirVistaContrato(a, inq, prop) {
-  const waInq = (() => { const t = (a.inquilinoTelefono || inq?.telefono || '').replace(/\D/g,''); return t ? `https://wa.me/${t.startsWith('54')?t:'54'+t}` : null; })();
-  const waGar = (() => { const t = (a.garanteTelefono || '').replace(/\D/g,''); return t ? `https://wa.me/${t.startsWith('54')?t:'54'+t}` : null; })();
+  const waUrl = (tel) => { const t = (tel || '').replace(/\D/g,''); return t ? `https://wa.me/${t.startsWith('54')?t:'54'+t}` : null; };
+  const waInq = waUrl(a.inquilinoTelefono || inq?.telefono);
+  const garantes = garantesDeAlquiler(a);
 
   const seccion = (titulo, html) => `
     <div style="margin-bottom:1.25rem">
@@ -975,20 +1168,20 @@ function abrirVistaContrato(a, inq, prop) {
         ${wa('WhatsApp inquilino', waInq)}
       </div>
 
-      ${(a.garante || a.garanteDni || a.garanteTelefono) ? `
+      ${garantes.map((g, i) => `
       <div style="margin-bottom:1.25rem">
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--primary);border-bottom:2px solid var(--primary);padding-bottom:.3rem;margin-bottom:.65rem">Garante</div>
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--primary);border-bottom:2px solid var(--primary);padding-bottom:.3rem;margin-bottom:.65rem">Garante${garantes.length > 1 ? ` ${i + 1}` : ''}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.35rem .75rem">
-          ${f('Nombre', a.garante)}
-          ${f('DNI / CUIT', a.garanteDni)}
-          ${f('Teléfono / WhatsApp', a.garanteTelefono)}
-          ${f('Email', a.garanteEmail)}
-          ${f('Domicilio', a.garanteDomicilio)}
-          ${f('Relación con inquilino', a.garanteRelacion)}
-          ${f('Propiedad en garantía', a.garantePropiedad)}
+          ${f('Nombre', g.nombre)}
+          ${f('DNI / CUIT', g.dni)}
+          ${f('Teléfono / WhatsApp', g.telefono)}
+          ${f('Email', g.email)}
+          ${f('Domicilio', g.domicilio)}
+          ${f('Relación con inquilino', g.relacion)}
+          ${f('Propiedad en garantía', g.propiedadGarantia)}
         </div>
-        ${wa('WhatsApp garante', waGar)}
-      </div>` : ''}
+        ${wa(`WhatsApp garante${garantes.length > 1 ? ` ${i + 1}` : ''}`, waUrl(g.telefono))}
+      </div>`).join('')}
 
       ${a.notas ? `
       <div style="margin-bottom:1rem">
@@ -998,7 +1191,7 @@ function abrirVistaContrato(a, inq, prop) {
     footerHTML: `
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
         ${waInq ? `<a href="${waInq}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.35rem;text-decoration:none">${icon('whatsapp')} Inquilino</a>` : ''}
-        ${waGar ? `<a href="${waGar}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.35rem;text-decoration:none">${icon('whatsapp')} Garante</a>` : ''}
+        ${garantes.map((g, i) => { const url = waUrl(g.telefono); return url ? `<a href="${url}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.35rem;text-decoration:none">${icon('whatsapp')} Garante${garantes.length > 1 ? ` ${i + 1}` : ''}</a>` : ''; }).join('')}
       </div>
       <button class="btn btn-ghost" data-close>Cerrar</button>`,
     onMount({ overlay, close }) {

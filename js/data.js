@@ -86,6 +86,26 @@ function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, 
   }));
 }
 
+/** Si el cobro trae comisión inicial pendiente de cobrar y ya está pagado,
+ *  genera el ingreso de caja correspondiente y marca el contrato como cobrada. */
+function procesarComisionInicial(db, a, c) {
+  if (!c.pagado || !(Number(c.comisionInicialMonto) > 0) || c.comisionInicialCajaMovimientoId) return;
+  const inq  = db.clientes.find(x => x.id === a.inquilinoId) || {};
+  const prop = db.propiedades.find(x => x.id === a.propiedadId) || {};
+  const mov = crearMovimientoCaja(db, {
+    tipo: 'ingreso',
+    concepto: `Comisión inicial • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'}`.trim(),
+    monto: Number(c.comisionInicialMonto),
+    metodoPago: c.metodoPago,
+    fecha: c.fechaPago || hoyISO(),
+    origen: 'comision-inicial',
+    refTipo: 'comision-inicial',
+    refId: c.id,
+  });
+  c.comisionInicialCajaMovimientoId = mov.id;
+  a.comisionInicialCobrada = true;
+}
+
 let _db = load();
 
 /* ============================================================
@@ -205,7 +225,7 @@ export const api = {
     const hoy = new Date().toISOString().slice(0, 10);
     const yaOcupada = _db.alquileres.some(a =>
       a.propiedadId === data.propiedadId &&
-      a.estado !== 'rescindido' &&
+      !['rescindido', 'renovado'].includes(a.estado) &&
       (!a.fechaFin || a.fechaFin >= hoy)
     );
     if (yaOcupada) throw new Error('La propiedad ya tiene un contrato de alquiler activo.');
@@ -227,6 +247,43 @@ export const api = {
     const a = _db.alquileres.find(x => x.id === id);
     if (a) { Object.assign(a, patch); persist(_db); }
     return delay(a ? structuredClone(a) : null);
+  },
+  /** Marca el contrato viejo como renovado y crea uno nuevo con los datos actualizados,
+   *  conservando la misma propiedad ocupada de forma continua. */
+  async renovarAlquiler(oldId, data) {
+    const old = _db.alquileres.find(x => x.id === oldId);
+    if (!old) throw new Error('Contrato a renovar no encontrado.');
+    const nuevo = {
+      id: uid('alq'),
+      fechaAlta: new Date().toISOString(),
+      estado: 'activo',
+      cobros: [],
+      renovadoDeId: oldId,
+      ...data,
+    };
+    old.estado = 'renovado';
+    old.renovadoEnId = nuevo.id;
+    const prop = _db.propiedades.find(x => x.id === nuevo.propiedadId);
+    if (prop) prop.estado = 'alquilada';
+    _db.alquileres.unshift(nuevo);
+    persist(_db);
+    return delay(structuredClone(nuevo));
+  },
+  /** Cancela (rescinde) el contrato y libera la propiedad si no queda otro contrato activo en ella. */
+  async cancelarAlquiler(id) {
+    const a = _db.alquileres.find(x => x.id === id);
+    if (!a) return delay(null);
+    a.estado = 'rescindido';
+    a.fechaCancelacion = hoyISO();
+    const otrosActivos = _db.alquileres.some(x =>
+      x.id !== id && x.propiedadId === a.propiedadId && !['rescindido', 'renovado'].includes(x.estado)
+    );
+    if (!otrosActivos) {
+      const prop = _db.propiedades.find(x => x.id === a.propiedadId);
+      if (prop) prop.estado = 'disponible';
+    }
+    persist(_db);
+    return delay(structuredClone(a));
   },
   async deleteAlquiler(id) {
     const a = _db.alquileres.find(x => x.id === id);
@@ -267,6 +324,7 @@ export const api = {
       c.cajaMovimientoIds = movs.map(m => m.id);
       c.cajaMovimientoId = movs[0]?.id;
     }
+    procesarComisionInicial(_db, a, c);
     persist(_db);
     return delay(structuredClone(c));
   },
@@ -296,6 +354,7 @@ export const api = {
         c.cajaMovimientoIds = movs.map(m => m.id);
         c.cajaMovimientoId = movs[0]?.id;
       }
+      procesarComisionInicial(_db, a, c);
       persist(_db);
     }
     return delay(c ? structuredClone(c) : null);

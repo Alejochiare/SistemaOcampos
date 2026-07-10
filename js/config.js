@@ -46,6 +46,7 @@ export const CONTRATO_ESTADOS = [
   { id: 'por_vencer',  label: 'Por vencer',  badge: 'badge-warning' },
   { id: 'vencido',     label: 'Vencido',     badge: 'badge-danger' },
   { id: 'rescindido',  label: 'Rescindido',  badge: 'badge-neutral' },
+  { id: 'renovado',    label: 'Renovado',    badge: 'badge-info' },
 ];
 
 /* Estados de venta */

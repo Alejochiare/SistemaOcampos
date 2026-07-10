@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, actions, subscribe } from '../store.js';
 import { icon } from '../config.js';
-import { esc, fmtFechaCorta } from '../lib.js';
+import { esc, fmtFechaCorta, fmtMontoInput, valorMonto } from '../lib.js';
 import { openModal } from '../components/modal.js';
 
 const ESTADOS = [
@@ -238,7 +238,7 @@ function abrirFormTemporal(t, onDone) {
         <div class="form-grid">
           <div class="form-group">
             <label>Precio por noche $</label>
-            <input name="precioPorNoche" id="tPPN" type="number" min="0" value="${t.precioPorNoche||''}">
+            <input name="precioPorNoche" id="tPPN" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(t.precioPorNoche)}">
           </div>
           <div class="form-group">
             <label>Noches</label>
@@ -246,11 +246,11 @@ function abrirFormTemporal(t, onDone) {
           </div>
           <div class="form-group">
             <label style="font-weight:700;color:var(--primary)">Total $</label>
-            <input name="precioTotal" id="tTotal" type="number" min="0" value="${t.precioTotal||''}" style="font-weight:700;font-size:1.05rem">
+            <input name="precioTotal" id="tTotal" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(t.precioTotal)}" style="font-weight:700;font-size:1.05rem">
           </div>
           <div class="form-group">
             <label>Seña cobrada $</label>
-            <input name="senia" type="number" min="0" value="${t.senia||''}">
+            <input name="senia" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(t.senia)}">
           </div>
         </div>
 
@@ -268,11 +268,11 @@ function abrirFormTemporal(t, onDone) {
       const recalcular = () => {
         const ci  = q('#tCheckIn').value;
         const co  = q('#tCheckOut').value;
-        const ppn = Number(q('#tPPN').value) || 0;
+        const ppn = valorMonto(q('#tPPN').value);
         if (ci && co && co > ci) {
           const n = Math.round((new Date(co) - new Date(ci)) / 86400000);
           q('#tNoches').value = n;
-          if (ppn) q('#tTotal').value = n * ppn;
+          if (ppn) q('#tTotal').value = fmtMontoInput(n * ppn);
         } else {
           q('#tNoches').value = '';
         }
@@ -285,7 +285,7 @@ function abrirFormTemporal(t, onDone) {
 
       q('#btnGuardarTemp').addEventListener('click', async () => {
         const get = n => (q(`[name="${n}"]`)?.value || '').trim();
-        const num = n => parseFloat(q(`[name="${n}"]`)?.value) || 0;
+        const num = n => valorMonto(q(`[name="${n}"]`)?.value);
 
         const huesped  = get('huesped');
         const checkIn  = get('checkIn');

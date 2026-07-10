@@ -5,6 +5,7 @@
 const KEY_AGENCIA  = 'inmocrm_agencia';
 const KEY_NUM_REC  = 'inmocrm_num_recibo';
 const KEY_NUM_LIQ  = 'inmocrm_num_liquidacion';
+const KEY_NUM_DEUDA = 'inmocrm_num_deuda';
 
 /* ── Agencia config ──────────────────────────────────────── */
 export function getAgencia() {
@@ -25,8 +26,10 @@ function fmtDocNum(num) { return `0001-${num}`; }
 /* ── Helpers ─────────────────────────────────────────────── */
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-function fmtMoneda(n) {
-  return n != null ? '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '—';
+function fmtMoneda(n, moneda = 'ARS') {
+  if (n == null) return '—';
+  const simbolo = moneda === 'USD' ? 'US$' : '$';
+  return simbolo + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2 });
 }
 
 function fmtFecha(d) {
@@ -42,9 +45,9 @@ function mesLabel(mes) {
   return `${nombres[+m - 1]} de ${y}`;
 }
 
-/** Convierte número a texto en pesos (simplificado, cubre hasta millones) */
-function enLetras(n) {
-  if (!n) return 'Cero pesos';
+/** Convierte número a texto en pesos o dólares (simplificado, cubre hasta millones) */
+function enLetras(n, unidad = 'pesos') {
+  if (!n) return `Cero ${unidad}`;
   const entero = Math.floor(n);
   const cents  = Math.round((n - entero) * 100);
 
@@ -81,7 +84,7 @@ function enLetras(n) {
   }
 
   const pesos = convertir(entero);
-  const txt   = pesos.charAt(0).toUpperCase() + pesos.slice(1) + ' pesos';
+  const txt   = pesos.charAt(0).toUpperCase() + pesos.slice(1) + ' ' + unidad;
   return cents ? txt + ` con ${cents}/100` : txt;
 }
 
@@ -414,6 +417,87 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
   abrirVentana('Liquidación', `
     ${copia('ORIGINAL')}
     <div class="separador">– – – – – – – – – – – – – – – – – – – – – – – – – – – – – –</div>
+    ${copia('DUPLICADO')}
+  `);
+}
+
+/* ============================================================
+   FACTURA DE DEUDA (al cancelar un contrato con cobros pendientes)
+   { alq, inquilino, propiedad, propietario,
+     cobrosPendientes: [{ mes, monto, moneda?, concepto? }] }
+   Cada ítem puede tener su propia moneda (ej: alquiler adeudado en USD
+   y una multa en ARS) — no se suman montos de monedas distintas.
+   ============================================================ */
+export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, cobrosPendientes = [] }) {
+  const ag  = getAgencia();
+  const num = fmtDocNum(nextNum(KEY_NUM_DEUDA));
+  const fecha = new Date().toISOString().slice(0, 10);
+
+  const monedaDefault = alq.moneda || 'ARS';
+  const totalesPorMoneda = {};
+  cobrosPendientes.forEach(c => {
+    const m = c.moneda || monedaDefault;
+    totalesPorMoneda[m] = (totalesPorMoneda[m] || 0) + (Number(c.monto) || 0);
+  });
+  const monedas = Object.keys(totalesPorMoneda);
+
+  const dniInq = alq.inquilinoDni || inquilino?.dni || '';
+
+  const copia = (tipoCopia) => `
+  <div class="copia">
+    ${headerDoc(ag, 'DEUDA', num, fecha)}
+
+    <div class="banda-concepto">
+      DETALLE DE DEUDA PENDIENTE AL CANCELAR CONTRATO DE ALQUILER
+    </div>
+
+    <div class="cliente-blk">
+      <div class="dato-fld"><span class="lbl">Inquilino:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
+      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div></div>'}
+      <div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Inmueble:</span> ${esc(propiedad?.direccion || '—')}</div>
+      <div class="dato-fld"><span class="lbl">Propietario:</span> ${esc(propietario?.nombre || '—')}</div>
+      <div class="dato-fld"><span class="lbl">Contrato:</span> ${fmtFecha(alq.fechaInicio)} — ${fmtFecha(alq.fechaFin)}</div>
+    </div>
+
+    <table class="tabla">
+      <thead><tr>
+        <th>Inmueble</th>
+        <th>Período</th>
+        <th class="right">Importe</th>
+      </tr></thead>
+      <tbody>
+        ${cobrosPendientes.map(c => `
+        <tr>
+          <td>${esc(propiedad?.direccion || '—')}</td>
+          <td>${c.mes ? mesLabel(c.mes) : esc(c.concepto || 'Cargo adicional')}</td>
+          <td class="right">${fmtMoneda(c.monto, c.moneda || monedaDefault)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+
+    <div class="totales">
+      ${monedas.map(m => `
+      <div class="total-row grand">
+        <div class="total-label">TOTAL ADEUDADO${monedas.length > 1 ? ` (${m})` : ''}:</div>
+        <div class="total-val">${fmtMoneda(totalesPorMoneda[m], m)}</div>
+      </div>`).join('')}
+    </div>
+
+    <div class="letras-blk">
+      <div>
+        ${monedas.map(m => `<div><span class="lbl">Son ${m === 'USD' ? 'dólares' : 'pesos'}${monedas.length > 1 ? ` (${m})` : ''}:</span> <strong>${enLetras(totalesPorMoneda[m], m === 'USD' ? 'dólares' : 'pesos')}</strong></div>`).join('')}
+      </div>
+    </div>
+
+    <div class="firma-blk">
+      <div class="firma-linea">Firma y aclaración</div>
+      <div class="copia-label">— ${tipoCopia} · deuda al cancelar contrato —</div>
+    </div>
+  </div>`;
+
+  abrirVentana('Deuda pendiente', `
+    ${copia('ORIGINAL')}
+    <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
   `);
 }
