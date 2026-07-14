@@ -1,5 +1,5 @@
-/* ============================================================
-   DATA — Modelo de datos + API sobre localStorage
+﻿/* ============================================================
+   DATA â€” Modelo de datos + API sobre localStorage
    ============================================================ */
 import { uid } from './lib.js';
 
@@ -74,7 +74,7 @@ function crearMovimientoCaja(db, data) {
 }
 
 /** Crea uno o varios movimientos de caja a partir de un pago que puede estar
- *  dividido en varias líneas (ej: parte efectivo, parte transferencia). */
+ *  dividido en varias lÃ­neas (ej: parte efectivo, parte transferencia). */
 function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, ...base }) {
   const lineas = (pagos && pagos.length ? pagos : [{ metodoPago, monto, referencia }])
     .filter(p => Number(p.monto || 0) > 0);
@@ -82,11 +82,11 @@ function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, 
     ...base,
     monto: Number(p.monto || 0),
     metodoPago: p.metodoPago,
-    nota: [p.referencia, nota].filter(Boolean).join(' · '),
+    nota: [p.referencia, nota].filter(Boolean).join(' Â· '),
   }));
 }
 
-/** Si el cobro trae comisión inicial pendiente de cobrar y ya está pagado,
+/** Si el cobro trae comisiÃ³n inicial pendiente de cobrar y ya estÃ¡ pagado,
  *  genera el ingreso de caja correspondiente y marca el contrato como cobrada. */
 function procesarComisionInicial(db, a, c) {
   if (!c.pagado || !(Number(c.comisionInicialMonto) > 0) || c.comisionInicialCajaMovimientoId) return;
@@ -94,7 +94,7 @@ function procesarComisionInicial(db, a, c) {
   const prop = db.propiedades.find(x => x.id === a.propiedadId) || {};
   const mov = crearMovimientoCaja(db, {
     tipo: 'ingreso',
-    concepto: `Comisión inicial • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'}`.trim(),
+    concepto: `ComisiÃ³n inicial â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'}`.trim(),
     monto: Number(c.comisionInicialMonto),
     metodoPago: c.metodoPago,
     fecha: c.fechaPago || hoyISO(),
@@ -310,7 +310,7 @@ export const api = {
       const movs = crearMovimientosPago(_db, {
         pagos: c.pagos,
         tipo: 'ingreso',
-        concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
+        concepto: `Cobro alquiler â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${c.mes || ''}`.trim(),
         monto: Number(c.monto || 0),
         metodoPago: c.metodoPago,
         referencia: c.referencia,
@@ -340,7 +340,7 @@ export const api = {
         const movs = crearMovimientosPago(_db, {
           pagos: c.pagos,
           tipo: 'ingreso',
-          concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
+          concepto: `Cobro alquiler â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${c.mes || ''}`.trim(),
           monto: Number(c.monto || 0),
           metodoPago: c.metodoPago,
           referencia: c.referencia,
@@ -378,7 +378,7 @@ export const api = {
       estado: 'en_curso',
       ...data,
     };
-    // Marcar propiedad según estado
+    // Marcar propiedad segÃºn estado
     const prop = _db.propiedades.find(x => x.id === v.propiedadId);
     if (prop) prop.estado = v.estado === 'escriturada' ? 'vendida' : 'reservada';
     _db.ventas.unshift(v);
@@ -387,10 +387,10 @@ export const api = {
       const comprador = _db.clientes.find(x => x.id === v.compradorId) || {};
       const mov = crearMovimientoCaja(_db, {
         tipo: 'ingreso',
-        concepto: `Venta • ${comprador.nombre || 'Comprador'} • ${prop?.direccion || 'Propiedad'}`.trim(),
+        concepto: `Venta â€¢ ${comprador.nombre || 'Comprador'} â€¢ ${prop?.direccion || 'Propiedad'}`.trim(),
         monto: importe,
         metodoPago: 'otro',
-        nota: Number(v.sena) > 0 ? 'Seña / anticipo de venta' : 'Venta registrada',
+        nota: Number(v.sena) > 0 ? 'SeÃ±a / anticipo de venta' : 'Venta registrada',
         fecha: v.fechaReserva || v.fechaEscritura || hoyISO(),
         origen: 'venta',
         refTipo: 'venta',
@@ -465,7 +465,7 @@ export const api = {
       const movs = crearMovimientosPago(_db, {
         pagos: l.pagos,
         tipo: 'egreso',
-        concepto: `Pago a propietario • ${own.nombre || 'Propietario'} • ${prop.direccion || 'Propiedad'} • ${periodoLbl}`.trim(),
+        concepto: `Pago a propietario â€¢ ${own.nombre || 'Propietario'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${periodoLbl}`.trim(),
         monto: Number(l.totalPagar || l.montoAlquiler || 0),
         metodoPago: l.formaPago,
         nota: l.notas || '',
@@ -516,7 +516,7 @@ export const api = {
   },
 
   /* ---- CAJA ---- */
-  /** Devuelve o crea la caja del día actual (abierta). */
+  /** Devuelve o crea la caja del dÃ­a actual (abierta). */
   async cajaHoy() {
     _db.caja = _db.caja || [];
     const hoy = new Date().toISOString().slice(0, 10);
@@ -554,278 +554,3 @@ export const api = {
     return delay(dia ? structuredClone(dia) : null);
   },
 };
-
-/* ============================================================
-   CARGA DE DATOS DE DEMOSTRACIÓN
-   ============================================================ */
-export async function cargarDatosDemo() {
-  // Solo cargar si la base está vacía
-  if (_db.clientes.length > 0 || _db.propiedades.length > 0) {
-    console.log('Datos de demostración ya existen');
-    return;
-  }
-
-  console.log('Cargando datos de demostración...');
-
-  // Crear 5 clientes (inquilinos)
-  const clientes = [
-    { nombre: 'Juan García López', email: 'juan.garcia@email.com', celular: '1123456789', tipo: 'inquilino', direccion: 'Calle Falsa 123' },
-    { nombre: 'María Rodríguez Martínez', email: 'maria.rodriguez@email.com', celular: '1187654321', tipo: 'inquilino', direccion: 'Avenida Siempre Viva 742' },
-    { nombre: 'Carlos Pérez Silva', email: 'carlos.perez@email.com', celular: '1145678901', tipo: 'inquilino', direccion: 'Boulevard Principal 456' },
-    { nombre: 'Ana Martínez González', email: 'ana.martinez@email.com', celular: '1165432109', tipo: 'inquilino', direccion: 'Paseo de la República 789' },
-    { nombre: 'Roberto Fernández Torres', email: 'roberto.fernandez@email.com', celular: '1198765432', tipo: 'inquilino', direccion: 'Avenida Central 234' },
-  ];
-
-  const clienteIds = [];
-  for (const c of clientes) {
-    const cliente = await api.createCliente(c);
-    clienteIds.push(cliente.id);
-  }
-
-  // Crear 5 propietarios
-  const propietarios = [
-    { nombre: 'Miguel Sánchez Ruiz', email: 'miguel.sanchez@email.com', celular: '1154321098', cbu: '0123456789012345678901', banco: 'Banco Nación' },
-    { nombre: 'Sofia Díaz López', email: 'sofia.diaz@email.com', celular: '1187654309', cbu: '9876543210987654321098', banco: 'Banco Provincia' },
-    { nombre: 'Diego Romero Gómez', email: 'diego.romero@email.com', celular: '1176543210', cbu: '1122334455667788990011', banco: 'Santander' },
-    { nombre: 'Patricia Flores Mendez', email: 'patricia.flores@email.com', celular: '1165432187', cbu: '1111222233334444555566', banco: 'BBVA' },
-    { nombre: 'Andrés López Castro', email: 'andres.lopez@email.com', celular: '1198765409', cbu: '2233445566778899001122', banco: 'Banco Crédito' },
-  ];
-
-  const propietarioIds = [];
-  for (const p of propietarios) {
-    const propietario = await api.createPropietario(p);
-    propietarioIds.push(propietario.id);
-  }
-
-  // Crear 6 propiedades (con diferentes estados)
-  const propiedades = [
-    // ALQUILADAS (3) - Solo para alquiler
-    {
-      direccion: 'Calle Independencia 1234',
-      barrio: 'San Telmo',
-      tipo: 'departamento',
-      dormitorios: 2,
-      baños: 1,
-      superficieTil: 65,
-      superficie: 75,
-      servicios: ['agua', 'gas', 'electricidad'],
-      amenities: ['balcón', 'cocina moderna'],
-      precioAlquiler: 1800,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[0],
-      estado: 'disponible',
-    },
-    {
-      direccion: 'Avenida Belgrano 567',
-      barrio: 'Monserrat',
-      tipo: 'departamento',
-      dormitorios: 3,
-      baños: 2,
-      superficieTil: 100,
-      superficie: 115,
-      servicios: ['agua', 'gas', 'electricidad', 'cloacas'],
-      amenities: ['terraza', 'pileta'],
-      precioAlquiler: 2500,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[1],
-      estado: 'disponible',
-    },
-    {
-      direccion: 'Calle Defensa 890',
-      barrio: 'La Boca',
-      tipo: 'casa',
-      dormitorios: 2,
-      baños: 1,
-      superficieTil: 80,
-      superficie: 100,
-      servicios: ['agua', 'gas', 'electricidad'],
-      amenities: ['patio', 'garage'],
-      precioAlquiler: 1500,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[2],
-      estado: 'disponible',
-    },
-    // PATRICIA - 3 PROPIEDADES PARA AGRUPAR
-    {
-      direccion: 'Avenida 9 de Julio 2000',
-      barrio: 'Centro',
-      tipo: 'departamento',
-      dormitorios: 1,
-      baños: 1,
-      superficieTil: 45,
-      superficie: 55,
-      servicios: ['agua', 'gas', 'electricidad'],
-      amenities: ['ubicación céntrica'],
-      precioAlquiler: 1200,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[3],
-      estado: 'disponible',
-    },
-    {
-      direccion: 'Calle Tucumán 1111',
-      barrio: 'Recoleta',
-      tipo: 'departamento',
-      dormitorios: 3,
-      baños: 2,
-      superficieTil: 120,
-      superficie: 140,
-      servicios: ['agua', 'gas', 'electricidad', 'aire acondicionado'],
-      amenities: ['living comedor', 'estudio', 'balcón'],
-      precioAlquiler: 1800,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[3],
-      estado: 'disponible',
-    },
-    {
-      direccion: 'Jose Ingenieros 1/4',
-      barrio: 'Caballito',
-      tipo: 'casa',
-      dormitorios: 2,
-      baños: 1,
-      superficieTil: 70,
-      superficie: 90,
-      servicios: ['agua', 'gas', 'electricidad'],
-      amenities: ['patio', 'cocina'],
-      precioAlquiler: 1400,
-      habilitadaAlquiler: true,
-      habilitadaTemporal: false,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[3],
-      estado: 'disponible',
-    },
-    // DISPONIBLE SOLO PARA ALQUILER TEMPORAL
-    {
-      direccion: 'Paseo Colón 2500',
-      barrio: 'San Telmo',
-      tipo: 'departamento',
-      dormitorios: 2,
-      baños: 2,
-      superficieTil: 85,
-      superficie: 105,
-      servicios: ['agua', 'gas', 'electricidad'],
-      amenities: ['amenidades', 'portero 24hs'],
-      precioAlquiler: 150,
-      habilitadaAlquiler: false,
-      habilitadaTemporal: true,
-      habilitadaVenta: false,
-      propietarioId: propietarioIds[4],
-      estado: 'disponible',
-    },
-  ];
-
-  const propiedadIds = [];
-  for (const prop of propiedades) {
-    const propiedad = await api.createPropiedad(prop);
-    propiedadIds.push(propiedad.id);
-  }
-
-  // Crear 6 alquileres activos (3 para propiedades normales + 3 para Patricia)
-  const hoy = new Date();
-  const hace3meses = new Date(hoy.getFullYear(), hoy.getMonth() - 3, hoy.getDate());
-  const hace6meses = new Date(hoy.getFullYear(), hoy.getMonth() - 6, hoy.getDate());
-  const hace2meses = new Date(hoy.getFullYear(), hoy.getMonth() - 2, hoy.getDate());
-  
-  // Mes para agrupar - hace un mes
-  const haceMes = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-  const mesAgrupacion = haceMes.toISOString().slice(0, 7); // formato YYYY-MM
-
-  const alquileres = [
-    {
-      propiedadId: propiedadIds[0],
-      inquilinoId: clienteIds[0],
-      propietarioId: propietarioIds[0],
-      montoInicial: 1800,
-      montoActual: 1800,
-      fechaInicio: hace6meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 24,
-      servicioIncluye: 'agua, electricidad',
-    },
-    {
-      propiedadId: propiedadIds[1],
-      inquilinoId: clienteIds[1],
-      propietarioId: propietarioIds[1],
-      montoInicial: 2500,
-      montoActual: 2500,
-      fechaInicio: hace3meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 24,
-      servicioIncluye: 'agua',
-    },
-    {
-      propiedadId: propiedadIds[2],
-      inquilinoId: clienteIds[2],
-      propietarioId: propietarioIds[2],
-      montoInicial: 1500,
-      montoActual: 1500,
-      fechaInicio: hace2meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 12,
-      servicioIncluye: 'sin incluir',
-    },
-    // 3 ALQUILERES PARA PATRICIA (propiedadIds[3], [4], [5])
-    {
-      propiedadId: propiedadIds[3],
-      inquilinoId: clienteIds[3],
-      propietarioId: propietarioIds[3],
-      montoInicial: 1200,
-      montoActual: 1200,
-      fechaInicio: hace6meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 24,
-      servicioIncluye: 'agua',
-    },
-    {
-      propiedadId: propiedadIds[4],
-      inquilinoId: clienteIds[1],
-      propietarioId: propietarioIds[3],
-      montoInicial: 1800,
-      montoActual: 1800,
-      fechaInicio: hace3meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 24,
-      servicioIncluye: 'agua, gas',
-    },
-    {
-      propiedadId: propiedadIds[5],
-      inquilinoId: clienteIds[4],
-      propietarioId: propietarioIds[3],
-      montoInicial: 1400,
-      montoActual: 1400,
-      fechaInicio: hace2meses.toISOString().slice(0, 10),
-      estado: 'activo',
-      duracionMeses: 12,
-      servicioIncluye: 'sin incluir',
-    },
-  ];
-
-  for (const alq of alquileres) {
-    const alqCreado = await api.createAlquiler(alq);
-    
-    // Agregar cobros pagados para generar liquidaciones
-    // Para las 3 propiedades de Patricia (últimas 3), agregar cobros del mes de agrupación
-    if (alq.propietarioId === propietarioIds[3]) {
-      await api.addCobro(alqCreado.id, {
-        mes: mesAgrupacion,
-        monto: alq.montoActual,
-        fechaPago: new Date(haceMes.getFullYear(), haceMes.getMonth(), 15).toISOString().slice(0, 10),
-        pagado: true,
-        notas: 'Cobro demo',
-      });
-    }
-  }
-
-  console.log('✅ Datos de demostración cargados correctamente');
-  console.log(`📊 Resumen: ${clienteIds.length} clientes, ${propietarioIds.length} propietarios, ${propiedadIds.length} propiedades`);
-  console.log(`📊 Estados: 3 ALQUILADAS, 2 DISPONIBLES, 1 VENDIDA`);
-}

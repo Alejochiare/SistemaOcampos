@@ -14,7 +14,6 @@ import { initAsistente } from './components/asistente.js';
 import { initRouter } from './router.js';
 import { initNotifications } from './notifications.js';
 import { $, formatearMontoInput } from './lib.js';
-import { cargarDatosDemo } from './data.js';
 import { actualizarIndices } from './indices.js';
 
 // Formato de miles en vivo (200.000, 1.000.000) para cualquier input de monto,
@@ -27,9 +26,6 @@ async function boot() {
   // Pantalla de carga mínima mientras se hidrata el estado
   const root = $('#viewRoot');
   if (root) root.innerHTML = '<div class="view"><div class="spinner"></div></div>';
-
-  // Cargar datos de demostración si la BD está vacía
-  await cargarDatosDemo();
 
   await initStore();   // hidrata leads/propiedades/tareas/usuarios
   initSidebar();          // navegación + badges en vivo
