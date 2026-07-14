@@ -201,7 +201,6 @@ export const api = {
       fechaAlta: new Date().toISOString(),
       estado: 'disponible',
       fotos: [],
-      publicadoWeb: data.publicadoWeb !== false,
       ...data,
     };
     _db.propiedades.unshift(p);

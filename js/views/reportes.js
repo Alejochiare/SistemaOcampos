@@ -63,8 +63,6 @@ export default async function reportes(root) {
           <div class="subtitle">Resumen de desempeño comercial.</div>
         </div>
         <button class="btn btn-ghost" id="pdf">${icon('download')} Exportar PDF</button>
-      </div>
-
       <div class="kpi-grid">
         <div class="kpi" style="--kpi-accent:var(--brand-600);--kpi-accent-soft:var(--brand-50)"><div class="kpi-top"><span class="kpi-label">Total leads</span><span class="kpi-icon">${icon('users')}</span></div><div class="kpi-value mono">${total}</div></div>
         <div class="kpi" style="--kpi-accent:var(--success);--kpi-accent-soft:var(--success-soft)"><div class="kpi-top"><span class="kpi-label">Conversión</span><span class="kpi-icon">${icon('trending')}</span></div><div class="kpi-value mono">${sel.conversion()}%</div></div>

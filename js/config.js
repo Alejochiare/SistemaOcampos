@@ -92,8 +92,6 @@ export const NAV = [
   { id: 'caja',          label: 'Control de caja',  icon: 'wallet' },
   { section: 'Agenda' },
   { id: 'agenda',       label: 'Agenda',           icon: 'calendar', badgeKey: 'eventosHoy' },
-  { section: 'Sitio web' },
-  { id: 'administracion', label: 'Administración', icon: 'shield' },
 ];
 
 /* Catálogo de iconos SVG */

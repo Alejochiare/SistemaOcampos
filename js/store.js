@@ -5,22 +5,8 @@ import { api } from './data.js';
 import { diasEntre } from './lib.js';
 import { ALERTA_DIAS, ALERTA_VENCIMIENTO_DIAS } from './config.js';
 
-/* Configuración del sitio web público: se guarda en localStorage,
-   en la MISMA clave que lee public/js/site.js, para que el sitio
-   estático la muestre sin necesidad de ningún backend. */
-const SITE_SETTINGS_KEY = 'inmocrm_site_settings';
-
-function leerSiteSettings() {
-  try { return JSON.parse(localStorage.getItem(SITE_SETTINGS_KEY)) || {}; }
-  catch { return {}; }
-}
-function guardarSiteSettings(s) {
-  localStorage.setItem(SITE_SETTINGS_KEY, JSON.stringify(s));
-}
-
 const state = {
   clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [],
-  siteSettings: leerSiteSettings(),
   loaded: false,
 };
 
@@ -101,14 +87,6 @@ export const actions = {
 
   /* Reset */
   resetDemo() { api.resetDemo(); return refresh(); },
-
-  /* Configuración del sitio web (banner, logo, contacto) */
-  updateSiteSettings(patch) {
-    const nuevo = { ...(state.siteSettings || {}), ...patch };
-    guardarSiteSettings(nuevo);
-    state.siteSettings = nuevo;
-    emit();
-  },
 };
 
 /* ============================================================

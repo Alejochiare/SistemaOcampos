@@ -127,12 +127,6 @@ const TEMAS = [
     ruta: 'liquidaciones',
   },
   {
-    id: 'sitio-web',
-    keywords: ['sitio web', 'pagina web', 'banner', 'logo', 'administracion'],
-    respuesta: `El banner, logo y datos de contacto del sitio público se configuran desde <strong>Administración</strong>. Los cambios se ven reflejados apenas los guardás.`,
-    ruta: 'administracion',
-  },
-  {
     id: 'buscar',
     keywords: ['buscar', 'busqueda', 'encontrar'],
     respuesta: `Podés usar el buscador general de arriba (o el atajo <strong>Ctrl/Cmd + K</strong>) para encontrar clientes, propiedades, alquileres o ventas por nombre, dirección o teléfono.`,

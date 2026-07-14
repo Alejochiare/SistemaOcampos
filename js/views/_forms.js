@@ -395,7 +395,7 @@ export function openPropForm(prop = null, onDone) {
             <input name="provincia" value="${esc(prop.provincia||'')}" placeholder="Ej. Salta"></div>
           <div class="form-group full"><label>Link de Google Maps</label>
             <input name="mapsUrl" value="${esc(prop.mapsUrl||'')}" placeholder="Pegá acá la URL de Google Maps de la ubicación">
-            <small class="text-xs text-soft" style="margin-top:.3rem;display:block">Se usa para mostrar el mapa en la ficha de la propiedad en el sitio web.</small></div>
+            <small class="text-xs text-soft" style="margin-top:.3rem;display:block">Queda guardado como referencia de ubicación de la propiedad.</small></div>
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Datos de la propiedad</h3>
@@ -464,10 +464,10 @@ export function openPropForm(prop = null, onDone) {
             <input name="expensas" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(prop.expensas)}" placeholder="0"></div>
         </div>
 
-        <h3 class="form-section-title" style="margin-top:1.5rem">Descripción para el sitio web</h3>
+        <h3 class="form-section-title" style="margin-top:1.5rem">Descripción</h3>
         <div class="form-group">
           <textarea name="descripcion" rows="4"
-            placeholder="Descripción completa de la propiedad para publicar en el sitio web. Mencioná los puntos fuertes, el entorno, el estado de la propiedad...">${esc(prop.descripcion||'')}</textarea>
+            placeholder="Descripción completa de la propiedad. Mencioná los puntos fuertes, el entorno, el estado de la propiedad...">${esc(prop.descripcion||'')}</textarea>
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Comodidades</h3>
@@ -482,14 +482,7 @@ export function openPropForm(prop = null, onDone) {
           <input id="inputFotos" type="file" accept="image/*" multiple style="display:none">
         </label>
         <input type="hidden" name="fotosJSON" value="${esc(JSON.stringify(fotosGuardadas))}">
-        <p class="text-xs text-soft" style="margin-top:.4rem">Las fotos se suben automáticamente al sitio web. La primera (marcada como "Portada") es la que se muestra como foto principal.</p>
-
-        <h3 class="form-section-title" style="margin-top:1.5rem">Sitio web</h3>
-        <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer;font-size:.9rem">
-          <input type="checkbox" name="publicadoWeb" value="1" ${prop.publicadoWeb!==false?'checked':''} style="width:16px;height:16px">
-          Publicar esta propiedad en el sitio web
-        </label>
-        <p class="text-xs text-soft" style="margin-top:.3rem">Se oculta sola del sitio cuando el estado pasa a "Vendida" o "Alquilada".</p>
+        <p class="text-xs text-soft" style="margin-top:.4rem">La primera foto (marcada como "Portada") es la que se muestra como foto principal.</p>
 
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveProp">${ed?'Guardar cambios':'Crear propiedad'}</button>`,
@@ -588,7 +581,6 @@ export function openPropForm(prop = null, onDone) {
         data.habilitadaAlquiler = !!ctx.overlay.querySelector('[name="habilitadaAlquiler"]')?.checked;
         data.habilitadaTemporal = !!ctx.overlay.querySelector('[name="habilitadaTemporal"]')?.checked;
         data.habilitadaVenta = !!ctx.overlay.querySelector('[name="habilitadaVenta"]')?.checked;
-        data.publicadoWeb = !!ctx.overlay.querySelector('[name="publicadoWeb"]')?.checked;
         // Fotos
         data.fotos = fotos;
         delete data.fotosJSON;

@@ -140,32 +140,9 @@ Usuario activo por defecto: **Carolina Méndez** (Administrador).
 
 ---
 
-## 🌐 Sitio web público + Administración
+## 🚀 Despliegue en Hostinger
 
-Además del CRM, el proyecto incluye un sitio público en **un solo archivo**, sin backend:
-
-- `sitio-web.html` — página única (banner, catálogo de propiedades con filtros, ficha de cada propiedad en un modal). Todo el HTML/CSS/JS está en ese único archivo, sin dependencias externas.
-- `img/` — carpeta con las imágenes del sitio: `img/logo/logo.png` (logo por defecto) y `img/banner/banner.png` (banner por defecto). Las fotos que cargás por propiedad se suben desde la compu (nunca por URL) y se guardan en el navegador.
-- Sección **Administración** dentro del CRM (`js/views/administracion.js`) para cargar banner y logo — siempre eligiendo el archivo desde tu computadora, nunca pegando una URL. Si no subís nada, se usan los archivos de `img/logo/` e `img/banner/`.
-
-`sitio-web.html` lee el mismo `localStorage` del navegador que usa el CRM (`js/data.js`), así que **no hace falta backend, PHP ni base de datos**. Al crear, editar o marcar una propiedad como "vendida"/"alquilada" en el CRM, el sitio la muestra o la oculta automáticamente — sólo aparecen las propiedades con **"Publicar en la web"** activado y que no estén vendidas ni alquiladas.
-
-> ⚠️ Importante: como usa `localStorage`, `sitio-web.html` ve los mismos datos sólo si se abre **desde el mismo navegador y el mismo origen** (mismo `http://localhost:8080` o mismo dominio) donde cargaste las propiedades en el CRM.
-
-### Cómo verlo
-
-1. Abrí la carpeta del proyecto con cualquier servidor estático (igual que para el CRM):
-   ```bash
-   npx serve .
-   # o: python3 -m http.server 8080
-   ```
-2. Abrí el CRM (`http://localhost:8080/index.html`) y cargá/editá propiedades (o dejá que corran los datos demo).
-3. Entrá a **Administración** en el CRM y subí el banner, el logo y los datos de contacto.
-4. Abrí `http://localhost:8080/sitio-web.html` en el mismo navegador — va a mostrar las propiedades publicadas y los datos que cargaste.
-
-### Despliegue en Hostinger
-
-1. Subí todo el proyecto (`css/`, `js/`, `img/`, `index.html`, `sitio-web.html`) por FTP o el Administrador de archivos de hPanel.
-2. El CRM queda en `tudominio.com/index.html` y el sitio público en `tudominio.com/sitio-web.html`.
+1. Subí todo el proyecto (`css/`, `js/`, `img/`, `index.html`) por FTP o el Administrador de archivos de hPanel.
+2. El CRM queda en `tudominio.com/index.html`.
 3. No hace falta crear base de datos ni configurar nada más — todo funciona con `localStorage` del navegador, igual que en local.
 4. Como el CRM no tiene login propio, conviene protegerlo con usuario/clave a nivel de servidor (hPanel → Avanzado → Protección con contraseña de directorios) para que sólo el equipo pueda cargar propiedades.

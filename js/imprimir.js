@@ -110,6 +110,7 @@ const CSS_PRINT = `
 
   /* Header */
   .doc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #111; }
+  .doc-logo { height: 46px; width: auto; max-width: 160px; object-fit: contain; display: block; margin-bottom: 3px; }
   .agencia-logo { font-size: 20px; font-weight: 900; color: #111; letter-spacing: -0.5px; }
   .agencia-sub  { font-size: 9px; color: #666; margin-top: 2px; }
   .agencia-info { font-size: 9px; color: #666; line-height: 1.5; margin-top: 4px; }
@@ -174,6 +175,7 @@ function abrirVentana(titulo, cuerpo) {
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <base href="${location.href}">
   <title>${titulo}</title>
   <style>${CSS_PRINT}</style>
 </head>
@@ -199,6 +201,7 @@ function headerDoc(ag, tipo, num, fecha) {
   return `
   <div class="doc-header">
     <div>
+      <img src="img/logo/logo-oscuro.png" class="doc-logo" alt="Logo">
       <div class="agencia-logo">${esc(nombre)}</div>
       <div class="agencia-sub">${esc(iva)}</div>
       <div class="agencia-info" style="margin-top:4px">
