@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, PROP_ESTADOS } from '../config.js';
 import { esc, fmtMoneda, fmtFechaCorta, debounce } from '../lib.js';
 import { navegar } from '../router.js';
-import { openPropietarioForm, openSeguimientoPropietarioForm } from './_forms.js';
+import { openPropietarioForm, openSeguimientoPropietarioForm } from './forms.js';
 
 const OBJETIVO_LABELS = { alquilar: 'Para alquilar', vender: 'Para vender', ambas: 'Alquilar y vender' };
 const OBJETIVO_BADGE  = { alquilar: 'badge-info', vender: 'badge-success', ambas: 'badge-warning' };

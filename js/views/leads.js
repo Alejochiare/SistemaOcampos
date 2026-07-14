@@ -7,7 +7,7 @@
 import { sel, actions, getState, subscribe } from '../store.js';
 import { $, $$, esc, fmtMoneda, iniciales, colorDe, debounce } from '../lib.js';
 import { LEAD_ESTADOS, ORIGENES, icon } from '../config.js';
-import { openLeadForm } from './_forms.js';
+import { openLeadForm } from './forms.js';
 import { openLeadDetail } from './leadDetail.js';
 
 const filtros = { q: '', asesor: '', origen: '' };

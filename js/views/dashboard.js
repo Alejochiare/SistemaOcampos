@@ -5,7 +5,7 @@
 import { sel, getState, subscribe } from '../store.js';
 import { $, $$, esc, iniciales, colorDe, relativo, fmtFechaCorta, esHoy, lineChart, barChart, doughnutChart, destroyAll } from '../lib.js';
 import { LEAD_ESTADOS, ORIGENES, TIPOS_ACTIVIDAD, icon } from '../config.js';
-import { openLeadForm } from './_forms.js';
+import { openLeadForm } from './forms.js';
 import { openLeadDetail } from './leadDetail.js';
 import { navegar } from '../router.js';
 

@@ -73,7 +73,7 @@ crm-inmobiliario/
         ├── propiedades.js  # Catálogo + matching inteligente con leads
         ├── reportes.js     # Análisis + export CSV / PDF
         ├── usuarios.js     # Usuarios + matriz de permisos por rol
-        └── _forms.js       # Formularios de alta/edición reutilizables
+        └── forms.js        # Formularios de alta/edición reutilizables
 ```
 
 ### Flujo de datos

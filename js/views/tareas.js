@@ -8,7 +8,7 @@ import { $, $$, esc, fmtFechaCorta, esHoy, relativo } from '../lib.js';
 import { PRIORIDADES, icon } from '../config.js';
 import { openModal, confirmar } from '../components/modal.js';
 import { toast } from '../components/toast.js';
-import { openTareaForm } from './_forms.js';
+import { openTareaForm } from './forms.js';
 import { openLeadDetail } from './leadDetail.js';
 
 const filtros = { estado: 'pendientes', prioridad: '', responsable: '' };

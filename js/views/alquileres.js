@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, CONTRATO_ESTADOS, MONEDAS } from '../config.js';
 import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto } from '../lib.js';
 import { navegar } from '../router.js';
-import { openAlquilerForm, openCobroForm, openRenovacionForm } from './_forms.js';
+import { openAlquilerForm, openCobroForm, openRenovacionForm } from './forms.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { imprimirRecibo, imprimirLiquidacion, imprimirFacturaDeuda, getAgencia, setAgencia } from '../imprimir.js';

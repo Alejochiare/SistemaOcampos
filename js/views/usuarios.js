@@ -7,7 +7,7 @@ import { $, $$, esc, iniciales, colorDe } from '../lib.js';
 import { ROLES, PERMISOS, icon } from '../config.js';
 import { confirmar } from '../components/modal.js';
 import { toast } from '../components/toast.js';
-import { openUsuarioForm } from './_forms.js';
+import { openUsuarioForm } from './forms.js';
 
 function rolePill(rolId) {
   const r = ROLES[rolId] || { label: rolId, color: 'var(--text-soft)' };

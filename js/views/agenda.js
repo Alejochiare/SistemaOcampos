@@ -4,7 +4,7 @@
 import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, TIPOS_EVENTO } from '../config.js';
 import { esc, fmtFechaCorta } from '../lib.js';
-import { openEventoForm } from './_forms.js';
+import { openEventoForm } from './forms.js';
 import { alertasAuto } from '../notificaciones.js';
 
 function navegar(ruta) { location.hash = `#/${ruta}`; }

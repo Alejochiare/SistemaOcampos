@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, VENTA_ESTADOS } from '../config.js';
 import { esc, fmtMoneda, fmtFechaCorta } from '../lib.js';
 import { navegar } from '../router.js';
-import { openVentaForm } from './_forms.js';
+import { openVentaForm } from './forms.js';
 
 export default function ventas(root, param) {
   if (param) return ventaDetalle(root, param);

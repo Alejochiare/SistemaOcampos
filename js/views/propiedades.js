@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, PROP_ESTADOS } from '../config.js';
 import { esc, fmtMoneda, debounce } from '../lib.js';
 import { navegar } from '../router.js';
-import { openPropForm } from './_forms.js';
+import { openPropForm } from './forms.js';
 import { openModal } from '../components/modal.js';
 
 function operacionesProp(p) {

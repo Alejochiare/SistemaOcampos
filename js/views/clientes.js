@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon } from '../config.js';
 import { esc, fmtMoneda, fmtFechaCorta, debounce } from '../lib.js';
 import { navegar } from '../router.js';
-import { openClienteForm, openSeguimientoForm } from './_forms.js';
+import { openClienteForm, openSeguimientoForm } from './forms.js';
 
 const INTERES_LABELS = { alquiler: 'Quiere alquilar', compra: 'Quiere comprar', propietario: 'Es propietario' };
 const INTERES_BADGE  = { alquiler: 'badge-info', compra: 'badge-success', propietario: 'badge-warning' };

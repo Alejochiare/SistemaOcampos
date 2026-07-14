@@ -9,7 +9,7 @@ import { toast } from '../components/toast.js';
 import { sel, actions } from '../store.js';
 import { $, $$, esc, fmtMoneda, iniciales, colorDe, fmtFecha, fmtFechaCorta, relativo } from '../lib.js';
 import { estadoById, TIPOS_ACTIVIDAD, icon } from '../config.js';
-import { openLeadForm, openTareaForm, openActividadForm } from './_forms.js';
+import { openLeadForm, openTareaForm, openActividadForm } from './forms.js';
 import { navegar } from '../router.js';
 
 /** Construye un enlace wa.me con texto pre-cargado (formato AR: 549...) */
