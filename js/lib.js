@@ -161,8 +161,17 @@ export function fmtHora(d) {
   return x.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Parsea una fecha (YYYY-MM-DD) como fecha LOCAL. `new Date('YYYY-MM-DD')` la interpreta
+ *  como UTC medianoche, lo que en husos horarios negativos (ej. Argentina) la corre un día
+ *  para atrás al leer getFullYear()/getMonth()/getDate() en hora local. */
+export function parseFechaLocal(d) {
+  if (d instanceof Date) return new Date(d);
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) return new Date(d.slice(0, 10) + 'T00:00:00');
+  return new Date(d);
+}
+
 export function diasEntre(a, b = new Date()) {
-  const da = new Date(a), db = new Date(b);
+  const da = parseFechaLocal(a), db = parseFechaLocal(b);
   da.setHours(0,0,0,0); db.setHours(0,0,0,0);
   return Math.round((db - da) / 86400000);
 }

@@ -2,8 +2,8 @@
    VISTA · Alquileres — contratos activos, cobros y vencimientos
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
-import { icon, CONTRATO_ESTADOS, MONEDAS } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto } from '../lib.js';
+import { icon, CONTRATO_ESTADOS, MONEDAS, DIA_LIMITE_PAGO } from '../config.js';
+import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, parseFechaLocal } from '../lib.js';
 import { navegar } from '../router.js';
 import { openAlquilerForm, openCobroForm, openRenovacionForm } from './forms.js';
 import { openModal } from '../components/modal.js';
@@ -225,6 +225,7 @@ function pintarDetalle(el, id) {
         ${filaInline('Monto inicial', fmtMoneda(a.montoInicial, a.moneda))}
         ${filaInline('Monto actual', a.montoActual ? fmtMoneda(a.montoActual, a.moneda) : null)}
         ${filaInline('Ajuste', a.tipoAjuste ? `${a.tipoAjuste}${a.porcentajeAjuste ? ' · ' + a.porcentajeAjuste + '%' : ''} · c/${a.frecuenciaAjuste} meses` : null)}
+        ${filaInline('Mora', a.pctMora ? `${a.pctMora}% por día (desde el ${DIA_LIMITE_PAGO})` : null)}
         ${filaInline('Depósito', fmtMoneda(a.deposito, a.moneda))}
         ${filaInline('Comisión', a.comision ? `${a.comision}%` : null)}
         ${filaInline('Comisión inicial', a.comisionInicial ? (a.comisionInicialCobrada ? 'Cobrada' : 'Pendiente') : null)}
@@ -443,7 +444,7 @@ function pintarDetalle(el, id) {
       const necesitaComision = esPrimeraCuota && a.comisionInicial && !a.comisionInicialCobrada && cobro.comisionInicialMonto == null;
       if (necesitaComision) {
         // Abrir el modal para poder cargar el monto de la comisión antes de confirmar el cobro
-        openCobroForm(a, () => {}, { mes: cobro.mes, monto: cobro.monto, cobroId: cobro.id });
+        openCobroForm(a, () => {}, { mes: cobro.mes, montoAlquiler: cobro.montoAlquiler ?? cobro.monto, cobroId: cobro.id });
         return;
       }
       await actions.updateCobro(id, cobroId, {
@@ -819,8 +820,8 @@ function openAgenciaModal() {
 function generarMeses(a) {
   if (!a.fechaInicio) return [];
   const hoy   = new Date();
-  const inicio = new Date(a.fechaInicio);
-  const fin    = new Date(a.fechaFin || hoy);
+  const inicio = parseFechaLocal(a.fechaInicio);
+  const fin    = a.fechaFin ? parseFechaLocal(a.fechaFin) : hoy;
   const hasta  = hoy < fin ? hoy : fin; // no mostrar meses futuros más allá de hoy+3
   const hastaConFuturos = new Date(Math.min(fin.getTime(), new Date(hoy.getFullYear(), hoy.getMonth()+2, 1).getTime()));
 
@@ -1155,6 +1156,7 @@ function abrirVistaContrato(a, inq, prop) {
         ${f('Tipo de ajuste', a.tipoAjuste)}
         ${f('Frecuencia de ajuste', a.frecuenciaAjuste ? `Cada ${a.frecuenciaAjuste} meses` : null)}
         ${f('% de ajuste fijo', a.porcentajeAjuste ? `${a.porcentajeAjuste}%` : null)}
+        ${f('% de mora por día', a.pctMora ? `${a.pctMora}% (a partir del día ${DIA_LIMITE_PAGO})` : null)}
         ${f('Depósito', a.deposito ? fmtMoneda(a.deposito, a.moneda) : null)}
         ${f('Comisión', a.comision ? `${a.comision}%` : null)}
       `)}

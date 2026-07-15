@@ -91,8 +91,8 @@ function enLetras(n, unidad = 'pesos') {
 /** Calcula pago Nº X de Y total del contrato */
 function numPago(alq, mes) {
   if (!alq.fechaInicio || !alq.fechaFin) return null;
-  const ini = new Date(alq.fechaInicio);
-  const fin = new Date(alq.fechaFin);
+  const ini = new Date(alq.fechaInicio.slice(0, 10) + 'T00:00:00');
+  const fin = new Date(alq.fechaFin.slice(0, 10) + 'T00:00:00');
   const [y, m] = mes.split('-').map(Number);
   const cur = new Date(y, m - 1, 1);
   const total = (fin.getFullYear() - ini.getFullYear()) * 12 + (fin.getMonth() - ini.getMonth()) + 1;
@@ -232,6 +232,8 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
   const num = fmtDocNum(nextNum(KEY_NUM_REC));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
   const monto = cobro.monto || alq.montoActual || alq.montoInicial || 0;
+  const montoMora = cobro.montoMora || 0;
+  const montoAlquiler = cobro.montoAlquiler ?? (monto - montoMora);
   const pago  = cobro.mes ? numPago(alq, cobro.mes) : null;
   const pagos = (cobro.pagos && cobro.pagos.length) ? cobro.pagos : null;
 
@@ -277,11 +279,19 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
         <th>Inmueble</th>
         <th class="right">Importe</th>
       </tr></thead>
-      <tbody><tr>
+      <tbody>
+      <tr>
         <td>Alquiler mensual</td>
         <td>${esc(propiedad?.direccion || '—')}</td>
-        <td class="right">${fmtMoneda(monto)}</td>
-      </tr></tbody>
+        <td class="right">${fmtMoneda(montoAlquiler)}</td>
+      </tr>
+      ${montoMora > 0 ? `
+      <tr>
+        <td>Recargo por mora (${cobro.pctMoraAplicado}% x ${cobro.diasMora} día${cobro.diasMora === 1 ? '' : 's'})</td>
+        <td>${esc(propiedad?.direccion || '—')}</td>
+        <td class="right">${fmtMoneda(montoMora)}</td>
+      </tr>` : ''}
+      </tbody>
     </table>
 
     <div class="totales">

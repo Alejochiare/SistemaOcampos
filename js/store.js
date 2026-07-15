@@ -2,7 +2,7 @@
    STORE — Estado central + selectores de negocio
    ============================================================ */
 import { api } from './data.js';
-import { diasEntre } from './lib.js';
+import { diasEntre, parseFechaLocal } from './lib.js';
 import { ALERTA_DIAS, ALERTA_VENCIMIENTO_DIAS } from './config.js';
 
 const state = {
@@ -141,7 +141,7 @@ export const sel = {
     const cobrosPorMes = {};
     (alq.cobros || []).forEach(c => { cobrosPorMes[c.mes] = c; });
 
-    const inicio = new Date(alq.fechaInicio);
+    const inicio = parseFechaLocal(alq.fechaInicio);
     const pendientes = [];
     let cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
     while (true) {
@@ -197,7 +197,7 @@ export const sel = {
       if (['rescindido', 'renovado'].includes(alq.estado)) return;
       if (sel.diasAlVencimiento(alq) < 0) return;
       if (!alq.fechaInicio || !alq.frecuenciaAjuste) return;
-      const inicio = new Date(alq.fechaInicio);
+      const inicio = parseFechaLocal(alq.fechaInicio);
       const mesesFrecuencia = Number(alq.frecuenciaAjuste) || 6;
       const mesesTranscurridos =
         (hoy.getFullYear() - inicio.getFullYear()) * 12 +
@@ -220,7 +220,7 @@ export const sel = {
   infoAjuste(alq) {
     if (!alq.fechaInicio || !alq.frecuenciaAjuste) return null;
     const hoy = new Date();
-    const inicio = new Date(alq.fechaInicio);
+    const inicio = parseFechaLocal(alq.fechaInicio);
     const mesesFrecuencia = Number(alq.frecuenciaAjuste) || 6;
     const mesesTranscurridos =
       (hoy.getFullYear() - inicio.getFullYear()) * 12 +

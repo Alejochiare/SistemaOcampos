@@ -76,6 +76,9 @@ export const ALERTA_DIAS = 7;
 /* Días de alerta antes de vencimiento de contrato */
 export const ALERTA_VENCIMIENTO_DIAS = 60;
 
+/* Día límite de pago del alquiler; desde el día siguiente corre la mora */
+export const DIA_LIMITE_PAGO = 10;
+
 /* Navegación del sidebar */
 export const NAV = [
   { section: 'Principal' },

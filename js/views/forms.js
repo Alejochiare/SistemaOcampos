@@ -8,7 +8,7 @@ import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto } from '../lib.js
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
-  VENTA_ESTADOS, TIPOS_EVENTO, icon
+  VENTA_ESTADOS, TIPOS_EVENTO, icon, DIA_LIMITE_PAGO
 } from '../config.js';
 
 const opts = (arr, sel) => arr.map(o => {
@@ -656,6 +656,35 @@ function montarGarantes(ctx, iniciales) {
 /* ============================================================
    ALQUILER
    ============================================================ */
+/** Calcula la cantidad de meses de duración entre dos fechas (inicio y fin de contrato). */
+function mesesEntreFechas(inicio, fin) {
+  if (!inicio || !fin) return '';
+  const ini = new Date(inicio + 'T00:00:00');
+  const finAjustado = new Date(fin + 'T00:00:00');
+  finAjustado.setDate(finAjustado.getDate() + 1); // el fin de contrato es el día previo al cumplimiento del mes
+  const meses = (finAjustado.getFullYear() - ini.getFullYear()) * 12 + (finAjustado.getMonth() - ini.getMonth());
+  return meses > 0 ? meses : '';
+}
+
+/** Calcula la fecha de fin de contrato a partir de la fecha de inicio y la duración en meses. */
+function calcularFechaFin(inicio, duracionMeses) {
+  if (!inicio || !duracionMeses) return '';
+  const d = new Date(inicio + 'T00:00:00');
+  d.setMonth(d.getMonth() + Number(duracionMeses));
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Días de atraso de un cobro: días transcurridos desde el DIA_LIMITE_PAGO del mes hasta la fecha de pago. */
+function calcularDiasMora(mes, fechaPago) {
+  if (!mes || !fechaPago) return 0;
+  const limite = new Date(`${mes}-01T00:00:00`);
+  limite.setDate(DIA_LIMITE_PAGO);
+  const pago = new Date(fechaPago + 'T00:00:00');
+  const dias = Math.round((pago - limite) / 86400000);
+  return dias > 0 ? dias : 0;
+}
+
 export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
   const renovando = !!formOpts.renovarDeId;
   const ed = !!alq && !renovando; alq = alq || {};
@@ -694,8 +723,10 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
         <div class="form-grid">
           <div class="form-group"><label>Fecha inicio <span class="req">*</span></label>
             <input name="fechaInicio" type="date" value="${(alq.fechaInicio||'').slice(0,10)}" required></div>
-          <div class="form-group"><label>Fecha fin <span class="req">*</span></label>
-            <input name="fechaFin" type="date" value="${(alq.fechaFin||'').slice(0,10)}" required></div>
+          <div class="form-group"><label>Duración (meses) <span class="req">*</span></label>
+            <input name="duracionMeses" type="number" min="1" step="1" value="${alq.duracionMeses || mesesEntreFechas(alq.fechaInicio, alq.fechaFin)}" placeholder="Ej: 24" required></div>
+          <div class="form-group"><label>Fecha fin</label>
+            <input name="fechaFin" type="date" value="${(alq.fechaFin||'').slice(0,10)}" readonly style="background:var(--bg-soft);color:var(--text-soft);cursor:not-allowed"></div>
           <div class="form-group"><label>Monto inicial</label>
             <input name="montoInicial" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(alq.montoInicial)}"></div>
           <div class="form-group"><label>Moneda</label>
@@ -706,6 +737,9 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
             <select name="frecuenciaAjuste">${opts(FRECUENCIAS_AJUSTE, alq.frecuenciaAjuste||6)}</select></div>
           <div class="form-group"><label>% de aumento (si es fijo)</label>
             <input name="porcentajeAjuste" type="number" min="0" step="0.1" value="${alq.porcentajeAjuste||''}" placeholder="Ej: 30"></div>
+          <div class="form-group"><label>% de mora por día de atraso</label>
+            <input name="pctMora" type="number" min="0" step="0.01" value="${alq.pctMora||''}" placeholder="Ej: 0.5">
+            <small style="color:var(--text-soft);display:block;margin-top:.25rem">Se cobra por día desde el ${DIA_LIMITE_PAGO} del mes, sobre el monto vigente del alquiler</small></div>
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.25rem">Datos del inquilino (contrato)</h3>
@@ -815,13 +849,22 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
       });
       refreshProps();
 
+      // Fecha fin se calcula sola a partir de la fecha de inicio + duración en meses
+      const fAlq = $('#alqForm', ctx.overlay);
+      const recalcFechaFin = () => {
+        fAlq.fechaFin.value = calcularFechaFin(fAlq.fechaInicio.value, fAlq.duracionMeses.value);
+      };
+      fAlq.fechaInicio.addEventListener('change', recalcFechaFin);
+      fAlq.duracionMeses.addEventListener('input', recalcFechaFin);
+
       const garantesCtl = montarGarantes(ctx, garantesDeAlquiler(alq));
 
       $('#saveAlq', ctx.overlay).addEventListener('click', async () => {
         const f = $('#alqForm', ctx.overlay);
+        recalcFechaFin();
         if (!ctx.overlay.querySelector('#inquilinoId').value) { toast('Seleccioná un inquilino', { tipo: 'warning' }); return; }
         if (!ctx.overlay.querySelector('#propiedadId').value) { toast('Seleccioná una propiedad', { tipo: 'warning' }); return; }
-        if (!f.fechaInicio.value || !f.fechaFin.value) { toast('Las fechas son obligatorias', { tipo: 'warning' }); return; }
+        if (!f.fechaInicio.value || !f.duracionMeses.value) { toast('Fecha de inicio y duración son obligatorias', { tipo: 'warning' }); return; }
         if (!ed) {
           const ocupada = propiedadesAlquiladasActivas(renovando ? formOpts.renovarDeId : null);
           if (ocupada.has(ctx.overlay.querySelector('#propiedadId').value)) {
@@ -829,7 +872,8 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
           }
         }
         const data = Object.fromEntries(new FormData(f).entries());
-        ['comision','porcentajeAjuste'].forEach(k => data[k] = data[k] ? Number(data[k]) : null);
+        data.duracionMeses = data.duracionMeses ? Number(data.duracionMeses) : null;
+        ['comision','porcentajeAjuste','pctMora'].forEach(k => data[k] = data[k] ? Number(data[k]) : null);
         ['montoInicial','deposito'].forEach(k => data[k] = data[k] ? valorMonto(data[k]) : null);
         // Usar comision también como pctHonorarios para liquidaciones
         if (data.comision != null) data.pctHonorarios = data.comision;
@@ -876,8 +920,9 @@ export function openRenovacionForm(alqViejo, onDone) {
 export function openCobroForm(alq, onDone, prefill = {}) {
   const hoy = new Date();
   const mesActual = prefill.mes || `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
-  const montoSugerido = prefill.monto ?? alq.montoActual ?? alq.montoInicial ?? '';
+  const montoSugerido = prefill.montoAlquiler ?? prefill.monto ?? alq.montoActual ?? alq.montoInicial ?? '';
   const editCobroId = prefill.cobroId || null;
+  const pctMora = Number(alq.pctMora) || 0;
 
   const METODOS = [
     { id: 'Efectivo',      icon: '💵' },
@@ -898,7 +943,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
             <input name="mes" type="month" value="${mesActual}" required>
           </div>
           <div class="form-group">
-            <label>Monto $</label>
+            <label>Monto alquiler $</label>
             <input name="monto" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(montoSugerido)}" style="font-size:1.1rem;font-weight:700">
           </div>
           <div class="form-group">
@@ -908,6 +953,22 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           <div class="form-group" style="display:flex;align-items:center;gap:.6rem;padding-top:1.6rem">
             <input type="checkbox" name="pagado" id="chkPagado" checked style="width:16px;height:16px;cursor:pointer">
             <label for="chkPagado" style="margin:0;cursor:pointer;font-weight:600">Marcar como pagado</label>
+          </div>
+        </div>
+
+        <!-- Recargo por mora (solo si el contrato tiene % de mora configurado) -->
+        <div id="moraBlk" style="display:none;margin-bottom:1.1rem;padding:.9rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid var(--danger)">
+          <div style="font-weight:700;margin-bottom:.3rem">⏰ Recargo por mora</div>
+          <div style="font-size:.82rem;color:var(--text-soft);margin-bottom:.6rem" id="moraDetalle"></div>
+          <div class="form-grid" style="margin-bottom:0">
+            <div class="form-group" style="margin:0;max-width:140px">
+              <label style="font-size:.72rem">% aplicado</label>
+              <input type="number" min="0" step="0.01" id="moraPctInput" style="width:100%">
+            </div>
+            <div class="form-group" style="margin:0;max-width:180px">
+              <label style="font-size:.72rem">Monto de mora $</label>
+              <input type="text" inputmode="numeric" class="input-monto" id="moraMontoInput">
+            </div>
           </div>
         </div>
 
@@ -945,11 +1006,42 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       const ov = ctx.overlay;
       const mostrarRef = (m) => ['Transferencia','Cheque'].includes(m);
       let pagos = [{ metodoPago: 'Efectivo', monto: montoSugerido || '', referencia: '' }];
+      let moraActual = { dias: 0, monto: 0, pct: pctMora };
+      let moraMontoManual = false;
+
+      const blkMora = ov.querySelector('#moraBlk');
+      const detalleMora = ov.querySelector('#moraDetalle');
+      const inputMoraPct = ov.querySelector('#moraPctInput');
+      const inputMoraMonto = ov.querySelector('#moraMontoInput');
+      inputMoraPct.value = pctMora || '';
+
+      // El % y el monto de mora se calculan solos, pero quedan editables por si se
+      // quiere ajustar o condonar el recargo para un cobro puntual.
+      const actualizarMora = () => {
+        const f = $('#cobroForm', ov);
+        const dias = pctMora > 0 ? calcularDiasMora(f.mes.value, f.fechaPago.value) : 0;
+        const rentaBase = valorMonto(f.monto.value) || 0;
+        const pctUsado = Number(inputMoraPct.value) || 0;
+        const montoCalculado = (dias > 0 && pctUsado > 0) ? Math.round(rentaBase * pctUsado / 100 * dias) : 0;
+        if (!moraMontoManual) inputMoraMonto.value = montoCalculado > 0 ? fmtMontoInput(montoCalculado) : '';
+        const montoFinal = valorMonto(inputMoraMonto.value) || 0;
+        moraActual = { dias, monto: montoFinal, pct: pctUsado };
+
+        if (pctMora > 0 && (dias > 0 || montoFinal > 0)) {
+          detalleMora.textContent = `${dias} día${dias === 1 ? '' : 's'} de atraso (vence el día ${DIA_LIMITE_PAGO}) × ${pctUsado}% diario sobre ${fmtMontoInput(rentaBase)} → sugerido $${montoCalculado.toLocaleString('es-AR')}. Podés ajustar el % o el monto antes de guardar.`;
+          blkMora.style.display = '';
+        } else {
+          blkMora.style.display = 'none';
+        }
+        // Con una sola forma de pago, se mantiene sincronizada con el total (alquiler + mora)
+        if (pagos.length === 1) { pagos[0].monto = rentaBase + montoFinal; renderPagos(); }
+        else actualizarResumen();
+      };
 
       const actualizarResumen = () => {
         const el = ov.querySelector('#pagosResumen');
         if (!el) return;
-        const total = valorMonto(ov.querySelector('#cobroForm').monto.value);
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0);
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         if (pagos.length > 1) {
           const dif = Math.round((total - asignado) * 100) / 100;
@@ -996,7 +1088,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       };
 
       ov.querySelector('#btnAddPago').addEventListener('click', () => {
-        const total = valorMonto(ov.querySelector('#cobroForm').monto.value);
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0);
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         const restante = Math.max(0, total - asignado);
         const usados = pagos.map(p => p.metodoPago);
@@ -1005,9 +1097,14 @@ export function openCobroForm(alq, onDone, prefill = {}) {
         renderPagos();
       });
 
-      $('#cobroForm', ov).monto.addEventListener('input', actualizarResumen);
+      $('#cobroForm', ov).monto.addEventListener('input', actualizarMora);
+      $('#cobroForm', ov).fechaPago.addEventListener('change', actualizarMora);
+      $('#cobroForm', ov).mes.addEventListener('change', actualizarMora);
+      inputMoraPct.addEventListener('input', actualizarMora);
+      inputMoraMonto.addEventListener('input', () => { moraMontoManual = true; actualizarMora(); });
 
       renderPagos();
+      actualizarMora();
 
       // Mostrar el bloque de comisión inicial solo para la cuota del mes de inicio del contrato
       const elegibleComision = !!alq.comisionInicial && !alq.comisionInicialCobrada;
@@ -1022,16 +1119,18 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       $('#saveCobro', ov).addEventListener('click', async () => {
         const f = $('#cobroForm', ov);
         if (!f.mes.value) { toast('Indicá el mes', { tipo: 'warning' }); return; }
+        actualizarMora();
 
         const pagosValidos = pagos.filter(p => Number(p.monto) > 0)
           .map(p => ({ metodoPago: p.metodoPago, monto: Number(p.monto), referencia: p.referencia || null }));
         if (!pagosValidos.length) { toast('Indicá el monto de al menos una forma de pago', { tipo: 'warning' }); return; }
 
-        const totalMonto = f.monto.value ? valorMonto(f.monto.value) : null;
-        if (pagosValidos.length > 1 && totalMonto != null) {
+        const rentaBase = f.monto.value ? valorMonto(f.monto.value) : 0;
+        const totalConMora = rentaBase + (moraActual.monto || 0);
+        if (pagosValidos.length > 1) {
           const suma = pagosValidos.reduce((s, p) => s + p.monto, 0);
-          if (Math.round(suma * 100) !== Math.round(totalMonto * 100)) {
-            toast('La suma de las formas de pago no coincide con el monto total', { tipo: 'warning' });
+          if (Math.round(suma * 100) !== Math.round(totalConMora * 100)) {
+            toast('La suma de las formas de pago no coincide con el monto total (alquiler + mora)', { tipo: 'warning' });
             return;
           }
         }
@@ -1041,15 +1140,22 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           : pagosValidos[0].metodoPago;
 
         const cobro = {
-          mes:        f.mes.value,
-          monto:      totalMonto,
-          fechaPago:  f.fechaPago.value || null,
-          pagado:     f.pagado.checked,
-          metodoPago: metodoResumen,
-          referencia: pagosValidos.length === 1 ? pagosValidos[0].referencia : null,
-          pagos:      pagosValidos,
-          nota:       f.nota.value || null,
+          mes:            f.mes.value,
+          monto:          totalConMora,
+          montoAlquiler:  rentaBase,
+          fechaPago:      f.fechaPago.value || null,
+          pagado:         f.pagado.checked,
+          metodoPago:     metodoResumen,
+          referencia:     pagosValidos.length === 1 ? pagosValidos[0].referencia : null,
+          pagos:          pagosValidos,
+          nota:           f.nota.value || null,
         };
+
+        if (moraActual.monto > 0) {
+          cobro.diasMora = moraActual.dias;
+          cobro.pctMoraAplicado = moraActual.pct;
+          cobro.montoMora = moraActual.monto;
+        }
 
         if (blkComision.style.display !== 'none' && ov.querySelector('#chkComisionInicial').checked) {
           const montoComision = valorMonto(ov.querySelector('#comisionInicialMonto').value);
