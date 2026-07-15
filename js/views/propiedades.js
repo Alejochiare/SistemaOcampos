@@ -109,7 +109,10 @@ function pintarLista(el, filtro, estadoFiltro) {
         return `
           <div class="prop-card" data-id="${p.id}" style="cursor:pointer">
             <div class="prop-card-head">
-              <span class="badge ${est?.badge || 'badge-neutral'}">${est?.label || p.estado}</span>
+              <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+                <span class="badge ${est?.badge || 'badge-neutral'}">${est?.label || p.estado}</span>
+                ${p.numeroCarpeta ? `<span class="badge badge-neutral" title="N° de carpeta">📁 ${esc(p.numeroCarpeta)}</span>` : ''}
+              </div>
               <button class="btn btn-xs btn-edit-prop" data-id="${p.id}" title="Editar" onclick="event.stopPropagation()" style="background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.2)">${icon('edit')}</button>
             </div>
             <div class="prop-card-body">
