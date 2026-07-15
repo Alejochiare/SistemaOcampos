@@ -63,7 +63,7 @@ export default function propiedades(root, param) {
 function pintarLista(el, filtro, estadoFiltro) {
   const { propiedades } = getState();
   let lista = propiedades.filter(p => {
-    const ok = !filtro || `${p.direccion} ${p.barrio||''} ${p.ciudad||''} ${p.tipo||''}`.toLowerCase().includes(filtro);
+    const ok = !filtro || `${p.direccion} ${p.barrio||''} ${p.ciudad||''} ${p.tipo||''} ${p.numeroCarpeta||''}`.toLowerCase().includes(filtro);
     const okE = !estadoFiltro || p.estado === estadoFiltro;
     return ok && okE;
   });
@@ -91,7 +91,7 @@ function pintarLista(el, filtro, estadoFiltro) {
     <div class="toolbar" style="flex-wrap:wrap;gap:.6rem">
       <div class="search-bar" style="flex:1;min-width:200px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input id="buscarProp" placeholder="Buscar por dirección, ciudad, tipo…" value="${esc(filtro)}">
+        <input id="buscarProp" placeholder="Buscar por dirección, ciudad, tipo, N° de carpeta…" value="${esc(filtro)}">
       </div>
       <div style="display:flex;gap:.4rem;flex-wrap:wrap">
         ${FILTROS.map(f => `
@@ -222,6 +222,7 @@ function pintarDetalle(el, id) {
               </div>
               <button class="btn btn-xs btn-ghost" data-goto-prop="${p.propietarioId}">${icon('link')} Ver ficha</button>
             </div>` : ''}
+          ${fila('N° de carpeta', p.numeroCarpeta)}
           ${fila('Tipo', p.tipo)}
           ${fila('Dirección', p.direccion)}
           ${fila('Barrio', p.barrio)}

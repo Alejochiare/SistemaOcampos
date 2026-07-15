@@ -400,6 +400,8 @@ export function openPropForm(prop = null, onDone) {
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Datos de la propiedad</h3>
         <div class="form-grid">
+          <div class="form-group"><label>N° de carpeta</label>
+            <input name="numeroCarpeta" value="${esc(prop.numeroCarpeta||'')}" placeholder="Ej. 1234"></div>
           <div class="form-group"><label>Tipo</label>
             <select name="tipo">${opts(TIPOS_PROPIEDAD, prop.tipo)}</select></div>
           <div class="form-group"><label>Estado</label>
