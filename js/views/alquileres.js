@@ -381,17 +381,27 @@ function pintarDetalle(el, id) {
     <div class="card" style="margin-bottom:1.25rem">
       <div class="card-head"><h3>${icon('trending')} Historial de aumentos</h3></div>
       <div style="padding:0">
-        ${[...(a.historialAjustes||[])].reverse().map(aj => `
+        ${[...(a.historialAjustes||[])].reverse().map((aj, i) => {
+          const esUltimo = i === 0; // solo el más reciente se puede corregir sin romper la cadena de montos
+          return `
           <div class="list-row">
             <div class="list-info">
               <div class="list-name">${fmtFechaCorta(aj.fecha)}</div>
               <div class="text-xs text-soft">${aj.nota || 'Sin nota'}</div>
             </div>
-            <div style="text-align:right">
-              <div style="font-size:.75rem;color:var(--text-soft);text-decoration:line-through">${fmtMoneda(aj.montoAnterior, a.moneda)}</div>
-              <div style="font-weight:700;color:var(--success)">${fmtMoneda(aj.montoNuevo, a.moneda)}</div>
+            <div style="display:flex;align-items:center;gap:.6rem">
+              <div style="text-align:right">
+                <div style="font-size:.75rem;color:var(--text-soft);text-decoration:line-through">${fmtMoneda(aj.montoAnterior, a.moneda)}</div>
+                <div style="font-weight:700;color:var(--success)">${fmtMoneda(aj.montoNuevo, a.moneda)}</div>
+              </div>
+              ${esUltimo ? `
+              <div style="display:flex;gap:.15rem;flex-shrink:0">
+                <button class="btn btn-xs btn-ghost" data-editar-ajuste="${a.id}" title="Corregir este aumento">${icon('edit')}</button>
+                <button class="btn btn-xs btn-ghost" data-deshacer-ajuste="${a.id}" title="Deshacer este aumento" style="color:var(--danger)">${icon('trash')}</button>
+              </div>` : ''}
             </div>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>` : ''}
 
@@ -410,6 +420,16 @@ function pintarDetalle(el, id) {
 
   el.querySelector('#btnRegistrarAumento')?.addEventListener('click', () => openAumentoModal(a));
   el.querySelector('#btnConfigAgencia')?.addEventListener('click', () => openAgenciaModal());
+
+  el.querySelector('[data-editar-ajuste]')?.addEventListener('click', () => openEditarAjusteModal(a));
+  el.querySelector('[data-deshacer-ajuste]')?.addEventListener('click', () => {
+    const ultimo = (a.historialAjustes || []).at(-1);
+    if (!ultimo) return;
+    if (confirm(`¿Deshacer el último aumento? El monto vuelve a ${fmtMoneda(ultimo.montoAnterior, a.moneda)}.`)) {
+      actions.deshacerUltimoAjuste(a.id);
+      toast('Aumento deshecho');
+    }
+  });
 
   /* imprimir recibo / liquidación */
   const datosImpresion = () => ({
@@ -1121,6 +1141,49 @@ function openAumentoModal(a) {
         } else {
           toast('Contrato al día con los aumentos');
         }
+      });
+    },
+  });
+}
+
+/* ── Modal corregir/deshacer el último aumento ───────────── */
+function openEditarAjusteModal(a) {
+  const ultimo = (a.historialAjustes || []).at(-1);
+  if (!ultimo) return;
+
+  openModal({
+    title: 'Corregir último aumento',
+    bodyHTML: `
+      <div style="display:flex;flex-direction:column;gap:1rem">
+        <div style="padding:.75rem 1rem;background:var(--surface-2);border-radius:var(--r-md);font-size:.82rem;color:var(--text-soft)">
+          Este aumento cambió el monto de <strong>${fmtMoneda(ultimo.montoAnterior, a.moneda)}</strong> a <strong>${fmtMoneda(ultimo.montoNuevo, a.moneda)}</strong>. Solo se puede corregir el último aumento registrado (los anteriores quedan fijos para no desordenar el historial).
+        </div>
+        <div>
+          <label class="form-label">Fecha</label>
+          <input id="editFecha" class="input" type="date" value="${ultimo.fecha || ''}">
+        </div>
+        <div>
+          <label class="form-label">Nuevo monto $</label>
+          <input id="editMonto" class="input input-monto" type="text" inputmode="numeric" value="${fmtMontoInput(ultimo.montoNuevo)}" style="font-size:1.2rem;font-weight:700">
+        </div>
+        <div>
+          <label class="form-label">Nota</label>
+          <input id="editNota" class="input" value="${esc(ultimo.nota || '')}">
+        </div>
+      </div>`,
+    footerHTML: `
+      <button class="btn btn-ghost" data-cancel>Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardarEditAjuste">Guardar corrección</button>`,
+    onMount({ overlay, close }) {
+      overlay.querySelector('[data-cancel]').addEventListener('click', close);
+      overlay.querySelector('#btnGuardarEditAjuste').addEventListener('click', async () => {
+        const fecha = overlay.querySelector('#editFecha').value;
+        const montoNuevo = valorMonto(overlay.querySelector('#editMonto').value);
+        const nota = overlay.querySelector('#editNota').value.trim();
+        if (!montoNuevo || montoNuevo <= 0) { toast('Indicá un monto válido', { tipo: 'warning' }); return; }
+        await actions.editarUltimoAjuste(a.id, { fecha: fecha || ultimo.fecha, montoNuevo, nota });
+        toast('Aumento corregido');
+        close();
       });
     },
   });

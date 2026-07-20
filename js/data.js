@@ -377,6 +377,31 @@ export const api = {
     persist(_db);
     return delay(structuredClone(aj));
   },
+  /** Corrige el último aumento registrado (monto, fecha o nota). Solo se permite editar
+   *  el último para no romper la cadena montoAnterior→montoNuevo del historial. */
+  async editarUltimoAjuste(alqId, patch) {
+    const a = _db.alquileres.find(x => x.id === alqId);
+    if (!a || !(a.historialAjustes || []).length) return delay(null);
+    const ultimo = a.historialAjustes[a.historialAjustes.length - 1];
+    if (patch.fecha != null) ultimo.fecha = patch.fecha;
+    if (patch.nota  != null) ultimo.nota  = patch.nota;
+    if (patch.montoNuevo != null) {
+      ultimo.montoNuevo = patch.montoNuevo;
+      a.montoActual = patch.montoNuevo;
+    }
+    persist(_db);
+    return delay(structuredClone(a));
+  },
+  /** Deshace el último aumento registrado: lo saca del historial y devuelve
+   *  el monto actual del contrato al que tenía antes de ese aumento. */
+  async deshacerUltimoAjuste(alqId) {
+    const a = _db.alquileres.find(x => x.id === alqId);
+    if (!a || !(a.historialAjustes || []).length) return delay(null);
+    const ultimo = a.historialAjustes.pop();
+    a.montoActual = ultimo.montoAnterior;
+    persist(_db);
+    return delay(structuredClone(a));
+  },
 
   /* ---- VENTAS ---- */
   async createVenta(data) {
