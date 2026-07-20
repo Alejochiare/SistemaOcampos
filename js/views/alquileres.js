@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, CONTRATO_ESTADOS, MONEDAS, DIA_LIMITE_PAGO } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, parseFechaLocal } from '../lib.js';
+import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal } from '../lib.js';
 import { navegar } from '../router.js';
 import { openAlquilerForm, openCobroForm, openRenovacionForm } from './forms.js';
 import { openModal } from '../components/modal.js';
@@ -1010,8 +1010,10 @@ function openAumentoModal(a) {
           </div>
           <div style="color:var(--text-faint)">→</div>
           <div style="text-align:right">
-            <div style="font-size:.72rem;color:var(--text-soft);margin-bottom:.2rem">Nuevo monto</div>
-            <div id="nuevoMonto" style="font-size:1.2rem;font-weight:800;color:var(--primary)">${montoInicial ? fmtMoneda(montoInicial, a.moneda) : '—'}</div>
+            <label class="form-label" style="margin:0 0 .2rem;font-size:.72rem;color:var(--text-soft)" for="nuevoMonto">Nuevo monto <span style="font-weight:400">(editable)</span></label>
+            <input id="nuevoMonto" class="input input-monto" type="text" inputmode="numeric"
+              value="${montoInicial ? fmtMontoInput(montoInicial) : ''}"
+              style="font-size:1.2rem;font-weight:800;color:var(--primary);text-align:right;height:2.6rem;width:150px">
           </div>
         </div>
 
@@ -1030,26 +1032,43 @@ function openAumentoModal(a) {
       const $pctIndice    = overlay.querySelector('#pctIndice');
       const $pctFijo      = overlay.querySelector('#pctFijoInput');
       const $pctAdicional = overlay.querySelector('#pctAdicional');
-      const $nuevoMonto   = overlay.querySelector('#nuevoMonto'); // div, no input
+      const $nuevoMonto   = overlay.querySelector('#nuevoMonto'); // input editable
 
       let _montoCalculado = montoInicial || 0;
+      // Si el usuario tipea el monto final a mano, dejamos de recalcularlo
+      // desde los % — en cambio el % extra se deriva del monto ingresado.
+      let _montoEditadoManual = false;
 
       const recalcular = () => {
+        if (_montoEditadoManual) return;
         const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : (parseFloat($pctFijo?.value) || 0);
         const pctExtra = parseFloat($pctAdicional?.value) || 0;
         const pctTotal = pctBase + pctExtra;
         _montoCalculado = calcNuevoMonto(pctBase, pctExtra);
         if ($nuevoMonto) {
-          $nuevoMonto.textContent = pctTotal > 0 ? fmtMoneda(_montoCalculado, a.moneda) : '—';
+          $nuevoMonto.value = pctTotal > 0 ? fmtMontoInput(_montoCalculado) : '';
         }
       };
+
+      const recalcularDesdeMonto = () => {
+        _montoEditadoManual = true;
+        const monto = valorMonto($nuevoMonto.value);
+        _montoCalculado = monto;
+        if (!montoActual || !$pctAdicional) return;
+        const pctBase  = esIndice ? (parseFloat($pctIndice?.value) || 0) : (parseFloat($pctFijo?.value) || 0);
+        const pctTotal = ((monto / montoActual) - 1) * 100;
+        $pctAdicional.value = Math.round((pctTotal - pctBase) * 100) / 100;
+      };
+
+      const onPctInput = () => { _montoEditadoManual = false; recalcular(); };
 
       if (esIndice) recalcular();
       if (esIndice && !indiceActual) $pctIndice?.focus();
 
-      $pctIndice?.addEventListener('input', recalcular);
-      $pctFijo?.addEventListener('input', recalcular);
-      $pctAdicional?.addEventListener('input', recalcular);
+      $pctIndice?.addEventListener('input', onPctInput);
+      $pctFijo?.addEventListener('input', onPctInput);
+      $pctAdicional?.addEventListener('input', onPctInput);
+      $nuevoMonto?.addEventListener('input', recalcularDesdeMonto);
 
       if (esFijo) recalcular();
 

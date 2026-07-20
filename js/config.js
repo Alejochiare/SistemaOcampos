@@ -83,8 +83,8 @@ export const DIA_LIMITE_PAGO = 10;
 export const NAV = [
   { section: 'Principal' },
   { id: 'inicio',        label: 'Inicio',                icon: 'grid' },
-  { id: 'clientes',      label: 'Clientes',               icon: 'users' },
-  { id: 'propietarios',  label: 'Clientes con propiedades', icon: 'briefcase' },
+  { id: 'clientes',      label: 'Inquilinos',   icon: 'users' },
+  { id: 'propietarios',  label: 'Propietarios', icon: 'briefcase' },
   { id: 'propiedades',   label: 'Propiedades',             icon: 'home' },
   { section: 'Operaciones' },
   { id: 'alquileres',   label: 'Alquileres',       icon: 'key',    badgeKey: 'cobrosVencidos', danger: true },

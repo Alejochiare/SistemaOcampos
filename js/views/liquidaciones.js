@@ -134,6 +134,7 @@ function cobrosALiquidar(state) {
     (a.cobros || []).forEach(c => {
       if (!c.pagado || !c.monto) return;
       if (cobrosLiquidados.has(c.id)) return; // ya liquidado
+      if (c.imputarAlMes) return; // imputado a un mes atrasado: no debe figurar para liquidar hoy
 
       const key = a.propietarioId;
       if (!grupos[key]) {

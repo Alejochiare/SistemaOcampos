@@ -958,6 +958,15 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           </div>
         </div>
 
+        <!-- Imputación a caja: hoy vs. el mes que correspondía (para cargar atrasos sin inflar la caja de hoy) -->
+        <div style="display:flex;align-items:flex-start;gap:.6rem;padding:.7rem .9rem;margin-bottom:1.1rem;background:var(--surface-2);border-radius:var(--r-md)">
+          <input type="checkbox" name="imputarAlMes" id="chkImputarMes" style="width:16px;height:16px;cursor:pointer;margin-top:.15rem">
+          <label for="chkImputarMes" style="margin:0;cursor:pointer;font-size:.85rem;line-height:1.35">
+            <strong>No sumar este monto a la caja de hoy</strong><br>
+            <span style="color:var(--text-soft);font-weight:400">Se va a imputar al mes del alquiler (<strong id="mesImputadoLbl">${mesActual}</strong>) en vez de a la fecha de pago. Usalo para cargar meses atrasados de contratos viejos sin que se sumen al cierre de caja de hoy.</span>
+          </label>
+        </div>
+
         <!-- Recargo por mora (solo si el contrato tiene % de mora configurado) -->
         <div id="moraBlk" style="display:none;margin-bottom:1.1rem;padding:.9rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--danger) 10%,transparent);border:1px solid var(--danger)">
           <div style="font-weight:700;margin-bottom:.3rem">⏰ Recargo por mora</div>
@@ -1118,6 +1127,11 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       actualizarBlkComision();
       $('#cobroForm', ov).mes.addEventListener('change', actualizarBlkComision);
 
+      const mesImputadoLbl = ov.querySelector('#mesImputadoLbl');
+      $('#cobroForm', ov).mes.addEventListener('change', e => {
+        if (mesImputadoLbl) mesImputadoLbl.textContent = e.target.value;
+      });
+
       $('#saveCobro', ov).addEventListener('click', async () => {
         const f = $('#cobroForm', ov);
         if (!f.mes.value) { toast('Indicá el mes', { tipo: 'warning' }); return; }
@@ -1147,6 +1161,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           montoAlquiler:  rentaBase,
           fechaPago:      f.fechaPago.value || null,
           pagado:         f.pagado.checked,
+          imputarAlMes:   f.imputarAlMes.checked,
           metodoPago:     metodoResumen,
           referencia:     pagosValidos.length === 1 ? pagosValidos[0].referencia : null,
           pagos:          pagosValidos,

@@ -1,5 +1,5 @@
 ﻿/* ============================================================
-   DATA â€” Modelo de datos + API sobre localStorage
+   DATA — Modelo de datos + API sobre localStorage
    ============================================================ */
 import { uid } from './lib.js';
 
@@ -74,7 +74,7 @@ function crearMovimientoCaja(db, data) {
 }
 
 /** Crea uno o varios movimientos de caja a partir de un pago que puede estar
- *  dividido en varias lÃ­neas (ej: parte efectivo, parte transferencia). */
+ *  dividido en varias líneas (ej: parte efectivo, parte transferencia). */
 function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, ...base }) {
   const lineas = (pagos && pagos.length ? pagos : [{ metodoPago, monto, referencia }])
     .filter(p => Number(p.monto || 0) > 0);
@@ -82,11 +82,19 @@ function crearMovimientosPago(db, { pagos, monto, metodoPago, referencia, nota, 
     ...base,
     monto: Number(p.monto || 0),
     metodoPago: p.metodoPago,
-    nota: [p.referencia, nota].filter(Boolean).join(' Â· '),
+    nota: [p.referencia, nota].filter(Boolean).join(' · '),
   }));
 }
 
-/** Si el cobro trae comisiÃ³n inicial pendiente de cobrar y ya estÃ¡ pagado,
+/** Fecha a usar para el movimiento de caja de un cobro: si el usuario marcó
+ *  "no sumar a la caja de hoy", se imputa al mes del alquiler (evita que
+ *  cargar meses atrasados de un contrato viejo infle la caja del día actual). */
+function fechaCajaDeCobro(c) {
+  if (c.imputarAlMes && c.mes) return `${c.mes}-01`;
+  return c.fechaPago || hoyISO();
+}
+
+/** Si el cobro trae comisión inicial pendiente de cobrar y ya está pagado,
  *  genera el ingreso de caja correspondiente y marca el contrato como cobrada. */
 function procesarComisionInicial(db, a, c) {
   if (!c.pagado || !(Number(c.comisionInicialMonto) > 0) || c.comisionInicialCajaMovimientoId) return;
@@ -94,10 +102,10 @@ function procesarComisionInicial(db, a, c) {
   const prop = db.propiedades.find(x => x.id === a.propiedadId) || {};
   const mov = crearMovimientoCaja(db, {
     tipo: 'ingreso',
-    concepto: `ComisiÃ³n inicial â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'}`.trim(),
+    concepto: `Comisión inicial • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'}`.trim(),
     monto: Number(c.comisionInicialMonto),
     metodoPago: c.metodoPago,
-    fecha: c.fechaPago || hoyISO(),
+    fecha: fechaCajaDeCobro(c),
     origen: 'comision-inicial',
     refTipo: 'comision-inicial',
     refId: c.id,
@@ -310,12 +318,12 @@ export const api = {
       const movs = crearMovimientosPago(_db, {
         pagos: c.pagos,
         tipo: 'ingreso',
-        concepto: `Cobro alquiler â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${c.mes || ''}`.trim(),
+        concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
         monto: Number(c.monto || 0),
         metodoPago: c.metodoPago,
         referencia: c.referencia,
         nota: c.nota,
-        fecha: c.fechaPago || hoyISO(),
+        fecha: fechaCajaDeCobro(c),
         origen: 'cobro-alquiler',
         refTipo: 'cobro',
         refId: c.id,
@@ -340,12 +348,12 @@ export const api = {
         const movs = crearMovimientosPago(_db, {
           pagos: c.pagos,
           tipo: 'ingreso',
-          concepto: `Cobro alquiler â€¢ ${inq.nombre || 'Inquilino'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${c.mes || ''}`.trim(),
+          concepto: `Cobro alquiler • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
           monto: Number(c.monto || 0),
           metodoPago: c.metodoPago,
           referencia: c.referencia,
           nota: c.nota,
-          fecha: c.fechaPago || hoyISO(),
+          fecha: fechaCajaDeCobro(c),
           origen: 'cobro-alquiler',
           refTipo: 'cobro',
           refId: c.id,
@@ -378,7 +386,7 @@ export const api = {
       estado: 'en_curso',
       ...data,
     };
-    // Marcar propiedad segÃºn estado
+    // Marcar propiedad según estado
     const prop = _db.propiedades.find(x => x.id === v.propiedadId);
     if (prop) prop.estado = v.estado === 'escriturada' ? 'vendida' : 'reservada';
     _db.ventas.unshift(v);
@@ -387,10 +395,10 @@ export const api = {
       const comprador = _db.clientes.find(x => x.id === v.compradorId) || {};
       const mov = crearMovimientoCaja(_db, {
         tipo: 'ingreso',
-        concepto: `Venta â€¢ ${comprador.nombre || 'Comprador'} â€¢ ${prop?.direccion || 'Propiedad'}`.trim(),
+        concepto: `Venta • ${comprador.nombre || 'Comprador'} • ${prop?.direccion || 'Propiedad'}`.trim(),
         monto: importe,
         metodoPago: 'otro',
-        nota: Number(v.sena) > 0 ? 'SeÃ±a / anticipo de venta' : 'Venta registrada',
+        nota: Number(v.sena) > 0 ? 'Seña / anticipo de venta' : 'Venta registrada',
         fecha: v.fechaReserva || v.fechaEscritura || hoyISO(),
         origen: 'venta',
         refTipo: 'venta',
@@ -465,7 +473,7 @@ export const api = {
       const movs = crearMovimientosPago(_db, {
         pagos: l.pagos,
         tipo: 'egreso',
-        concepto: `Pago a propietario â€¢ ${own.nombre || 'Propietario'} â€¢ ${prop.direccion || 'Propiedad'} â€¢ ${periodoLbl}`.trim(),
+        concepto: `Pago a propietario • ${own.nombre || 'Propietario'} • ${prop.direccion || 'Propiedad'} • ${periodoLbl}`.trim(),
         monto: Number(l.totalPagar || l.montoAlquiler || 0),
         metodoPago: l.formaPago,
         nota: l.notas || '',
@@ -516,7 +524,7 @@ export const api = {
   },
 
   /* ---- CAJA ---- */
-  /** Devuelve o crea la caja del dÃ­a actual (abierta). */
+  /** Devuelve o crea la caja del día actual (abierta). */
   async cajaHoy() {
     _db.caja = _db.caja || [];
     const hoy = new Date().toISOString().slice(0, 10);
