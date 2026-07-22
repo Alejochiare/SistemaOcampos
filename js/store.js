@@ -55,7 +55,7 @@ export const actions = {
   async deleteAlquiler(id)          { await api.deleteAlquiler(id); await refresh(); },
   async renovarAlquiler(oldId, d)   { const r = await api.renovarAlquiler(oldId, d); await refresh(); return r; },
   async cancelarAlquiler(id)        { const r = await api.cancelarAlquiler(id); await refresh(); return r; },
-  async addCobro(alqId, cobro)      { await api.addCobro(alqId, cobro); await refresh(); },
+  async addCobro(alqId, cobro)      { const r = await api.addCobro(alqId, cobro); await refresh(); return r; },
   async updateCobro(alqId, cobId, p){ await api.updateCobro(alqId, cobId, p); await refresh(); },
   async registrarAumento(alqId, nuevoMonto, nota) { await api.registrarAumento(alqId, nuevoMonto, nota); await refresh(); },
   async editarUltimoAjuste(alqId, patch) { await api.editarUltimoAjuste(alqId, patch); await refresh(); },
@@ -104,7 +104,25 @@ export const sel = {
 
   nombreCliente:     (id) => state.clientes.find(x => x.id === id)?.nombre || '—',
   nombrePropietario: (id) => state.propietarios.find(x => x.id === id)?.nombre || '—',
-  propiedadesDe:     (propietarioId) => state.propiedades.filter(p => p.propietarioId === propietarioId),
+  /** Lista de dueños de una propiedad: [{propietarioId, porcentaje, pagaComision, comisionPct}].
+   *  Si la propiedad no tiene `propietarios` cargado (dato viejo), se deriva de `propietarioId`
+   *  como único dueño. Si algún dueño no tiene % ni "paga comisión" configurado todavía
+   *  (recién agregado, nunca liquidado), se completa con reparto parejo / paga comisión = sí,
+   *  para que nunca aparezca un propietario con 0% hasta que se liquide y quede guardado. */
+  propietariosDePropiedad(prop) {
+    if (!prop) return [];
+    const raw = (prop.propietarios && prop.propietarios.length) ? prop.propietarios
+              : (prop.propietarioId ? [{ propietarioId: prop.propietarioId }] : []);
+    if (!raw.length) return [];
+    const n = raw.length;
+    return raw.map(o => ({
+      propietarioId: o.propietarioId,
+      porcentaje:    o.porcentaje    != null ? o.porcentaje    : Math.round(100 / n),
+      pagaComision:  o.pagaComision  != null ? o.pagaComision  : true,
+      comisionPct:   o.comisionPct   != null ? o.comisionPct   : null,
+    }));
+  },
+  propiedadesDe: (propietarioId) => state.propiedades.filter(p => sel.propietariosDePropiedad(p).some(o => o.propietarioId === propietarioId)),
   dirPropiedad:  (id) => {
     const p = state.propiedades.find(x => x.id === id);
     return p ? `${p.direccion}${p.barrio ? ', ' + p.barrio : ''}` : '—';

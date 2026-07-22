@@ -346,7 +346,7 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
    }
    ============================================================ */
 export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario,
-                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [] }) {
+                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
@@ -363,6 +363,7 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
     <div class="cliente-blk">
       <div class="cliente-col">
         <div><span class="label-fld">Cliente: </span><strong>${esc(propietario?.nombre || '—')}</strong></div>
+        ${porcentajeReparto != null && porcentajeReparto < 100 ? `<div><span class="label-fld">Corresponde: </span>${porcentajeReparto}% de la propiedad</div>` : ''}
         <div><span class="label-fld">Dirección: </span>${esc(propietario?.direccion || propietario?.domicilio || '')}</div>
         <div><span class="label-fld">I.V.A.: </span>Consumidor Final</div>
       </div>

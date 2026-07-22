@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, CONTRATO_ESTADOS, MONEDAS, DIA_LIMITE_PAGO } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal } from '../lib.js';
+import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal, debounce } from '../lib.js';
 import { navegar } from '../router.js';
 import { openAlquilerForm, openCobroForm, openRenovacionForm } from './forms.js';
 import { openModal } from '../components/modal.js';
@@ -16,8 +16,9 @@ export default function alquileres(root, param) {
   if (param) return alqDetalle(root, param);
   root.innerHTML = `<div class="view" id="vAlq"></div>`;
   let filtro = '';
+  let busqueda = '';
 
-  const render = () => pintarLista(root.querySelector('#vAlq'), filtro);
+  const render = () => pintarLista(root.querySelector('#vAlq'), filtro, busqueda);
   render();
   const unsub = subscribe(render);
 
@@ -25,11 +26,14 @@ export default function alquileres(root, param) {
     const btn = e.target.closest('[data-filtro]');
     if (btn) { filtro = btn.dataset.filtro; render(); }
   });
+  root.querySelector('#vAlq').addEventListener('input', debounce((e) => {
+    if (e.target.id === 'buscarAlq') { busqueda = e.target.value.toLowerCase(); render(); }
+  }, 150));
 
   return unsub;
 }
 
-function pintarLista(el, filtro) {
+function pintarLista(el, filtro, busqueda) {
   const { alquileres, clientes, propiedades } = getState();
 
   const activos = alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) >= 0);
@@ -57,6 +61,10 @@ function pintarLista(el, filtro) {
   else if (filtro === 'vencidos') lista = alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) < 0).sort((a, b) => sel.diasAlVencimiento(a) - sel.diasAlVencimiento(b));
   else                            lista = baseActivos;
 
+  if (busqueda) {
+    lista = lista.filter(a => (clientes.find(c => c.id === a.inquilinoId)?.nombre || '').toLowerCase().includes(busqueda));
+  }
+
   const pillStyle = (activo) => activo
     ? 'background:var(--primary);color:var(--on-primary);border-color:var(--primary)'
     : 'background:var(--surface);color:var(--text);border-color:var(--border)';
@@ -83,6 +91,13 @@ function pintarLista(el, filtro) {
         <p class="view-sub">${activos.length} activo${activos.length !== 1 ? 's' : ''}</p>
       </div>
       <button class="btn btn-primary" id="btnNuevoAlq">${icon('plus')} Nuevo contrato</button>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="buscarAlq" placeholder="Buscar por nombre del inquilino…" value="${esc(busqueda)}">
+      </div>
     </div>
 
     <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1.5rem">

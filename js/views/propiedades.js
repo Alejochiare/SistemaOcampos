@@ -122,7 +122,7 @@ function pintarLista(el, filtro, estadoFiltro) {
               </div>
               <div class="prop-dir">${esc(p.direccion || '—')}</div>
               ${(p.barrio || p.ciudad) ? `<div class="text-xs text-soft" style="margin-top:.15rem">${[p.barrio, p.ciudad].filter(Boolean).map(esc).join(', ')}</div>` : ''}
-              ${p.propietarioId ? `<div class="text-xs text-soft" style="margin-top:.3rem;display:flex;align-items:center;gap:.3rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> ${esc(sel.nombrePropietario(p.propietarioId))}</div>` : ''}
+              ${sel.propietariosDePropiedad(p).length ? `<div class="text-xs text-soft" style="margin-top:.3rem;display:flex;align-items:center;gap:.3rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg> ${esc(sel.propietariosDePropiedad(p).map(o => sel.nombrePropietario(o.propietarioId)).join(' · '))}</div>` : ''}
             </div>
             <div class="prop-card-foot">
               ${p.ambientes ? `<span>${p.ambientes} amb.</span>` : ''}
@@ -217,13 +217,16 @@ function pintarDetalle(el, id) {
           <span class="badge ${est?.badge || 'badge-neutral'}">${est?.label || p.estado}</span>
         </div>
         <div class="card-body">
-          ${p.propietarioId ? `
-            <div style="margin-bottom:1rem;padding:.75rem 1rem;background:var(--primary-soft);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-between">
-              <div>
-                <div class="text-xs text-soft" style="margin-bottom:.2rem">Propietario</div>
-                <div style="font-weight:700">${esc(sel.nombrePropietario(p.propietarioId))}</div>
-              </div>
-              <button class="btn btn-xs btn-ghost" data-goto-prop="${p.propietarioId}">${icon('link')} Ver ficha</button>
+          ${sel.propietariosDePropiedad(p).length ? `
+            <div style="margin-bottom:1rem;display:flex;flex-direction:column;gap:.5rem">
+              ${sel.propietariosDePropiedad(p).map(o => `
+              <div style="padding:.75rem 1rem;background:var(--primary-soft);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-between">
+                <div>
+                  <div class="text-xs text-soft" style="margin-bottom:.2rem">Propietario${sel.propietariosDePropiedad(p).length > 1 ? ` · ${o.porcentaje ?? '—'}%` : ''}</div>
+                  <div style="font-weight:700">${esc(sel.nombrePropietario(o.propietarioId))}</div>
+                </div>
+                <button class="btn btn-xs btn-ghost" data-goto-prop="${o.propietarioId}">${icon('link')} Ver ficha</button>
+              </div>`).join('')}
             </div>` : ''}
           ${fila('N° de carpeta', p.numeroCarpeta)}
           ${fila('Tipo', p.tipo)}
@@ -311,7 +314,9 @@ function pintarDetalle(el, id) {
     </div>`;
 
   el.querySelector('#btnEditarProp')?.addEventListener('click', () => openPropForm(p, () => {}));
-  el.querySelector(`[data-goto-prop="${p.propietarioId}"]`)?.addEventListener('click', () => navegar(`propietarios/${p.propietarioId}`));
+  el.querySelectorAll('[data-goto-prop]').forEach(btn => {
+    btn.addEventListener('click', () => navegar(`propietarios/${btn.dataset.gotoProp}`));
+  });
   el.querySelector('#btnEliminarProp')?.addEventListener('click', async () => {
     if (!confirm('¿Eliminar esta propiedad? No se puede deshacer.')) return;
     await actions.deletePropiedad(id);

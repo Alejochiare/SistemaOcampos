@@ -3,7 +3,7 @@
    ============================================================ */
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
-import { actions, getState } from '../store.js';
+import { actions, getState, sel as selStore } from '../store.js';
 import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto } from '../lib.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
@@ -348,6 +348,69 @@ export function openSeguimientoForm(clienteId, onDone) {
   });
 }
 
+/** Gestiona N filas de propietario dentro del form de propiedad (agregar/quitar/buscar).
+ *  El % de cada uno, quién paga comisión y a qué % se configuran al liquidar, no acá —
+ *  por eso cada fila sólo administra `propietarioId`, preservando el resto de los campos
+ *  (porcentaje, pagaComision, comisionPct) que ya pudieran venir guardados en la propiedad. */
+function montarPropietarios(ctx, iniciales, propietariosList) {
+  const ov = ctx.overlay;
+  let filas = (iniciales || []).map(o => ({ ...o }));
+  if (!filas.length) filas = [{ propietarioId: '' }];
+
+  const render = () => {
+    const blk = ov.querySelector('#propietariosBlk');
+    blk.innerHTML = filas.map((f, i) => {
+      const p = propietariosList.find(x => x.id === f.propietarioId);
+      return `
+      <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem" data-prop-idx="${i}">
+        <div style="flex:1;position:relative">
+          <input class="prop-own-search" autocomplete="off" placeholder="Escribí el nombre..." value="${esc(p?.nombre || '')}" style="width:100%">
+          <div class="prop-own-drop" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);z-index:50;max-height:200px;overflow-y:auto"></div>
+        </div>
+        ${filas.length > 1 ? `<button type="button" class="btn btn-xs btn-ghost btn-del-own" style="color:var(--danger);flex-shrink:0">${icon('trash')}</button>` : ''}
+      </div>`;
+    }).join('');
+
+    blk.querySelectorAll('[data-prop-idx]').forEach(row => {
+      const i = Number(row.dataset.propIdx);
+      const inp  = row.querySelector('.prop-own-search');
+      const drop = row.querySelector('.prop-own-drop');
+      const renderDrop = (q) => {
+        const query = q.toLowerCase().trim();
+        const matches = propietariosList.filter(p => p.nombre.toLowerCase().includes(query)).slice(0, 8);
+        if (!matches.length || !query) { drop.style.display = 'none'; return; }
+        drop.innerHTML = matches.map(p => `
+          <div data-id="${p.id}" style="padding:.55rem .9rem;cursor:pointer;font-size:.875rem;border-bottom:1px solid var(--border)">
+            ${esc(p.nombre)}${p.telefono ? `<span style="color:var(--text-soft);font-size:.75rem"> · ${esc(p.telefono)}</span>` : ''}
+          </div>`).join('');
+        drop.style.display = 'block';
+        drop.querySelectorAll('[data-id]').forEach(el => {
+          el.addEventListener('mousedown', () => {
+            filas[i].propietarioId = el.dataset.id;
+            inp.value = propietariosList.find(p => p.id === el.dataset.id)?.nombre || '';
+            drop.style.display = 'none';
+          });
+        });
+      };
+      inp.addEventListener('input', () => { filas[i].propietarioId = ''; renderDrop(inp.value); });
+      inp.addEventListener('blur',  () => setTimeout(() => { drop.style.display = 'none'; }, 150));
+      inp.addEventListener('focus', () => { if (inp.value) renderDrop(inp.value); });
+      row.querySelector('.btn-del-own')?.addEventListener('click', () => { filas.splice(i, 1); render(); });
+    });
+  };
+
+  ov.querySelector('#btnAddPropietario').addEventListener('click', () => {
+    filas.push({ propietarioId: '' });
+    render();
+  });
+
+  render();
+
+  return {
+    getPropietarios: () => filas.filter(f => f.propietarioId),
+  };
+}
+
 /* ============================================================
    PROPIEDAD
    ============================================================ */
@@ -375,15 +438,10 @@ export function openPropForm(prop = null, onDone) {
     bodyHTML: `
       <form id="propForm">
 
-        <h3 class="form-section-title">Propietario</h3>
-        <div class="form-group" style="position:relative">
-          <label>Propietario <span class="req">*</span></label>
-          <input id="propOwnerSearch" autocomplete="off" placeholder="Escribí el nombre..." value="${esc(propietarios.find(p=>p.id===prop.propietarioId)?.nombre||'')}"
-            style="width:100%">
-          <input type="hidden" name="propietarioId" value="${esc(prop.propietarioId||'')}">
-          <div id="propOwnerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);z-index:50;max-height:200px;overflow-y:auto"></div>
-          <small class="text-xs text-soft" style="margin-top:.3rem;display:block">Si no está, primero crealo en "Clientes con propiedades"</small>
-        </div>
+        <h3 class="form-section-title">Propietario(s)</h3>
+        <div id="propietariosBlk" style="margin-bottom:.5rem"></div>
+        <button type="button" id="btnAddPropietario" class="btn btn-sm btn-ghost" style="margin-bottom:.5rem">${icon('plus')} Agregar propietario</button>
+        <small class="text-xs text-soft" style="margin-top:.3rem;display:block">Si no está, primero crealo en "Clientes con propiedades". Si hay más de uno, el % de cada uno y quién paga comisión se define al liquidar.</small>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Ubicación</h3>
         <div class="form-grid">
@@ -489,32 +547,8 @@ export function openPropForm(prop = null, onDone) {
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveProp">${ed?'Guardar cambios':'Crear propiedad'}</button>`,
     onMount(ctx) {
-      // Buscador de propietario
-      const searchInput  = ctx.overlay.querySelector('#propOwnerSearch');
-      const hiddenId     = ctx.overlay.querySelector('[name="propietarioId"]');
-      const dropdown     = ctx.overlay.querySelector('#propOwnerDropdown');
-
-      const renderDrop = (query) => {
-        const q = query.toLowerCase().trim();
-        const matches = propietarios.filter(p => p.nombre.toLowerCase().includes(q)).slice(0, 8);
-        if (!matches.length || !q) { dropdown.style.display = 'none'; return; }
-        dropdown.innerHTML = matches.map(p => `
-          <div data-id="${p.id}" style="padding:.55rem .9rem;cursor:pointer;font-size:.875rem;border-bottom:1px solid var(--border)" class="prop-owner-opt">
-            ${esc(p.nombre)}${p.telefono ? `<span style="color:var(--text-soft);font-size:.75rem"> · ${esc(p.telefono)}</span>` : ''}
-          </div>`).join('');
-        dropdown.style.display = 'block';
-        dropdown.querySelectorAll('.prop-owner-opt').forEach(el => {
-          el.addEventListener('mousedown', () => {
-            hiddenId.value = el.dataset.id;
-            searchInput.value = propietarios.find(p => p.id === el.dataset.id)?.nombre || '';
-            dropdown.style.display = 'none';
-          });
-        });
-      };
-
-      searchInput.addEventListener('input', () => { hiddenId.value = ''; renderDrop(searchInput.value); });
-      searchInput.addEventListener('blur',  () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
-      searchInput.addEventListener('focus', () => { if (searchInput.value) renderDrop(searchInput.value); });
+      // Propietario(s) — lista repetible con autocomplete por fila
+      const propietariosCtl = montarPropietarios(ctx, selStore.propietariosDePropiedad(prop), propietarios);
 
       // Fotos
       let fotos = [...fotosGuardadas];
@@ -565,10 +599,14 @@ export function openPropForm(prop = null, onDone) {
 
       $('#saveProp', ctx.overlay).addEventListener('click', async () => {
         const f = $('#propForm', ctx.overlay);
-        if (!hiddenId.value) { searchInput.focus(); toast('Seleccioná un propietario', { tipo: 'warning' }); return; }
+        const propietariosElegidos = propietariosCtl.getPropietarios();
+        if (!propietariosElegidos.length) { toast('Seleccioná al menos un propietario', { tipo: 'warning' }); return; }
         if (!f.direccion.value.trim()) { f.direccion.focus(); toast('La dirección es obligatoria', { tipo: 'warning' }); return; }
         const fd = new FormData(f);
         const data = Object.fromEntries(fd.entries());
+        // Propietario(s): se guarda la lista completa + propietarioId (primero) para compatibilidad
+        data.propietarios = propietariosElegidos;
+        data.propietarioId = propietariosElegidos[0].propietarioId;
         // Numéricos (cantidades)
         ['ambientes','banos','m2','m2Cubiertos','antiguedad','pisosEdificio'].forEach(k => {
           data[k] = data[k] ? Number(data[k]) : null;
@@ -824,7 +862,7 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
         const ownId = ctx.overlay.querySelector('#propietarioId')?.value || '';
         const yaAlquiladas = propiedadesAlquiladasActivas(renovando ? formOpts.renovarDeId : (ed ? alq.id : null));
         const lista = propiedades.filter(p => {
-          if (ownId && p.propietarioId !== ownId) return false;
+          if (ownId && !selStore.propietariosDePropiedad(p).some(o => o.propietarioId === ownId)) return false;
           if (!['disponible', 'alquilada'].includes(p.estado)) return false;
           if (yaAlquiladas.has(p.id) && p.id !== alq.propiedadId) return false;
           return true;
