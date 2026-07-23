@@ -3,7 +3,7 @@
    ============================================================ */
 import { api } from './data.js';
 import { diasEntre, parseFechaLocal } from './lib.js';
-import { ALERTA_DIAS, ALERTA_VENCIMIENTO_DIAS } from './config.js';
+import { ALERTA_VENCIMIENTO_DIAS } from './config.js';
 
 const state = {
   clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [],
@@ -129,11 +129,10 @@ export const sel = {
   },
 
   /* ---- Clientes ---- */
-  diasSinContacto(cli) {
-    return diasEntre(cli.ultimoContacto || cli.fechaAlta, new Date());
-  },
-  sinSeguimiento() {
-    return state.clientes.filter(c => sel.diasSinContacto(c) >= ALERTA_DIAS);
+  /** True si el cliente ya tiene un contrato de alquiler vigente (no rescindido/renovado) —
+   *  ya encontró propiedad, por lo que deja de listarse como prospecto buscando alquilar. */
+  tieneAlquilerVigente(clienteId) {
+    return state.alquileres.some(a => a.inquilinoId === clienteId && !['rescindido', 'renovado'].includes(a.estado));
   },
 
   /* ---- Alquileres ---- */
@@ -304,7 +303,6 @@ export const sel = {
 
     return {
       totalClientes:     state.clientes.length,
-      sinSeguimiento:    sel.sinSeguimiento().length,
       alquileresActivos: sel.alquileresActivos().length,
       ventasActivas:     sel.ventasActivas().length,
       cobrosVencidos,

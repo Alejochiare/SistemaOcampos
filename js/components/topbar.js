@@ -108,16 +108,6 @@ function initNotif() {
     const alertas = [];
     const { clientes, alquileres } = getState();
 
-    sel.sinSeguimiento().slice(0, 5).forEach(c => {
-      const dias = sel.diasSinContacto(c);
-      alertas.push({
-        icon: 'clock', color: 'var(--warning)', soft: 'var(--warning-soft)',
-        titulo: `${c.nombre} sin contacto`,
-        sub: `${dias} día${dias !== 1 ? 's' : ''} sin seguimiento`,
-        go: () => navegar(`clientes/${c.id}`),
-      });
-    });
-
     sel.proxVencimientos().slice(0, 4).forEach(({ alq, dias }) => {
       const inq = clientes.find(c => c.id === alq.inquilinoId);
       alertas.push({
@@ -142,7 +132,7 @@ function initNotif() {
   };
 
   const refrescarDot = () => {
-    const n = sel.sinSeguimiento().length + sel.proxVencimientos().length + sel.eventosHoy().length;
+    const n = sel.proxVencimientos().length + sel.eventosHoy().length;
     dot.style.display = n ? 'block' : 'none';
   };
 

@@ -345,21 +345,51 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
      formaPago,
    }
    ============================================================ */
-export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario,
-                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null }) {
+export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario, propietarios = null,
+                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
   const totalAlquiler = cobro.monto || alq.montoActual || alq.montoInicial || 0;
-  const honorarios    = Math.round(totalAlquiler * pctHonorarios / 100);
+  const esMultiPropietario = Array.isArray(propietarios) && propietarios.length > 0;
+  const honorarios    = esMultiPropietario
+    ? propietarios.reduce((s, p) => s + (Number(p.montoHonorarios) || 0), 0)
+    : Math.round(totalAlquiler * pctHonorarios / 100);
   const totalDesc     = descuentos.reduce((s, d) => s + (Number(d.monto) || 0), 0);
-  const totalPagar    = totalAlquiler - honorarios - totalDesc;
+  const totalPagar    = esMultiPropietario
+    ? propietarios.reduce((s, p) => s + (Number(p.totalPagar) || 0), 0)
+    : totalAlquiler - honorarios - totalDesc;
   const pago          = cobro.mes ? numPago(alq, cobro.mes) : null;
+  const periodo       = periodoLabel || (cobro.mes ? mesLabel(cobro.mes) : '—');
 
   const copia = (tipoCopia) => `
   <div class="copia">
     ${headerDoc(ag, 'LIQUIDACIÓN', num, fecha)}
 
+    ${esMultiPropietario ? `
+    <div class="cliente-blk" style="display:block">
+      <div style="font-weight:700;margin-bottom:4px">Propietarios — reparto de esta liquidación</div>
+      <table class="tabla" style="margin:0 0 6px">
+        <thead><tr>
+          <th>Propietario</th>
+          <th class="right">%</th>
+          <th class="right">Bruto</th>
+          <th class="right">Comisión</th>
+          <th class="right">Total pagado</th>
+        </tr></thead>
+        <tbody>
+          ${propietarios.map(p => `
+          <tr>
+            <td>${esc(p.nombre || '—')}</td>
+            <td class="right">${p.porcentaje}%</td>
+            <td class="right">${fmtMoneda(p.montoBruto)}</td>
+            <td class="right">${p.montoHonorarios ? `− ${fmtMoneda(p.montoHonorarios)} (${p.pctHonorarios || 0}%)` : '—'}</td>
+            <td class="right"><strong>${fmtMoneda(p.totalPagar)}</strong></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : `
     <div class="cliente-blk">
       <div class="cliente-col">
         <div><span class="label-fld">Cliente: </span><strong>${esc(propietario?.nombre || '—')}</strong></div>
@@ -372,6 +402,7 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
         <div><span class="label-fld">Localidad: </span>${esc(ag.localidad || '')}</div>
       </div>
     </div>
+    `}
 
     <table class="tabla">
       <thead><tr>
@@ -382,7 +413,7 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
       <tbody>
         <tr>
           <td>${esc(propiedad?.tipo || '')} ${esc(propiedad?.direccion || '—')}</td>
-          <td>${cobro.mes ? mesLabel(cobro.mes) : '—'}${pago ? ` [pago ${pago.actual} / ${pago.total}]` : ''}</td>
+          <td>${periodo}${pago ? ` [pago ${pago.actual} / ${pago.total}]` : ''}</td>
           <td class="right"><strong>${fmtMoneda(totalAlquiler)}</strong></td>
         </tr>
       </tbody>
@@ -394,16 +425,16 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
         <div class="total-val">${fmtMoneda(totalAlquiler)}</div>
       </div>
       <div class="total-row">
-        <div class="total-label">Honorarios (${pctHonorarios}%):</div>
+        <div class="total-label">${esMultiPropietario ? 'Comisión total:' : `Honorarios (${pctHonorarios}%):`}</div>
         <div class="total-val">− ${fmtMoneda(honorarios)}</div>
       </div>
       ${descuentos.filter(d => d.monto).map(d => `
       <div class="total-row">
-        <div class="total-label" style="font-size:9px">${esc(d.nota || 'Descuento')}:</div>
+        <div class="total-label" style="font-size:9px">${esc(d.nota || d.concepto || 'Descuento')}:</div>
         <div class="total-val">− ${fmtMoneda(d.monto)}</div>
       </div>`).join('')}
       <div class="total-row grand">
-        <div class="total-label">Total Pagado al propietario:</div>
+        <div class="total-label">Total Pagado ${esMultiPropietario ? 'a los propietarios' : 'al propietario'}:</div>
         <div class="total-val">${fmtMoneda(totalPagar)}</div>
       </div>
     </div>
@@ -411,7 +442,16 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
     <div class="letras-blk">
       <div><span class="label-fld">Total a liquidar: </span><strong>${enLetras(totalPagar)}</strong></div>
       <div style="text-align:right">
-        ${pagos && pagos.length > 1 ? `
+        ${esMultiPropietario ? `
+          <div><span class="label-fld">Forma de pago por propietario:</span></div>
+          ${propietarios.map(p => `
+          <div style="margin-top:2px">
+            <strong>${esc(p.nombre)}:</strong> ${fmtMoneda(p.totalPagar)}
+            ${p.pagos && p.pagos.length > 1
+              ? ` — ${p.pagos.map(pg => `${esc(pg.metodoPago)}: ${fmtMoneda(pg.monto)}`).join(', ')}`
+              : ` — ${esc(p.formaPago || p.pagos?.[0]?.metodoPago || 'Efectivo')}`}
+          </div>`).join('')}
+        ` : pagos && pagos.length > 1 ? `
           <div><span class="label-fld">Forma de pago:</span></div>
           ${pagos.map(p => `
           <div style="margin-top:2px">
@@ -422,10 +462,17 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
       </div>
     </div>
 
+    ${esMultiPropietario ? `
+    <div class="firma-blk" style="justify-content:space-around;flex-wrap:wrap;gap:8px">
+      ${propietarios.map(p => `<div class="firma-linea">Firma — ${esc(p.nombre)}</div>`).join('')}
+    </div>
+    <div class="copia-label" style="text-align:right;margin-top:4px">– ${tipoCopia} –</div>
+    ` : `
     <div class="firma-blk">
       <div class="firma-linea">Firma y aclaración</div>
       <div class="copia-label">– ${tipoCopia} –</div>
     </div>
+    `}
   </div>`;
 
   abrirVentana('Liquidación', `

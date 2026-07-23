@@ -70,9 +70,6 @@ export const TIPOS_EVENTO = [
   { id: 'otro',        label: 'Otro' },
 ];
 
-/* Umbrales de alerta de seguimiento (días sin contacto) */
-export const ALERTA_DIAS = 7;
-
 /* Días de alerta antes de vencimiento de contrato */
 export const ALERTA_VENCIMIENTO_DIAS = 60;
 

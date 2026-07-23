@@ -491,11 +491,31 @@ export const api = {
       ...data,
     };
     _db.liquidaciones.unshift(l);
-    if (Number(l.totalPagar || l.montoAlquiler || 0) > 0) {
-      const prop = _db.propiedades.find(x => x.id === l.propiedadId) || {};
+    const prop = _db.propiedades.find(x => x.id === l.propiedadId) || {};
+    const periodoLbl = l.mes || (l.meses && l.meses.length ? (l.meses.length > 1 ? `${l.meses[0]} a ${l.meses[l.meses.length - 1]}` : l.meses[0]) : '');
+    let movs = [];
+    if (Array.isArray(l.propietarios) && l.propietarios.length) {
+      // Liquidación con varios dueños (co-propiedad): un movimiento de caja por dueño,
+      // cada uno con su propia forma de pago.
+      l.propietarios.forEach(po => {
+        if (!(Number(po.totalPagar || 0) > 0)) return;
+        const own = _db.propietarios.find(x => x.id === po.propietarioId) || {};
+        movs = movs.concat(crearMovimientosPago(_db, {
+          pagos: po.pagos,
+          tipo: 'egreso',
+          concepto: `Pago a propietario • ${own.nombre || 'Propietario'} (${po.porcentaje}%) • ${prop.direccion || 'Propiedad'} • ${periodoLbl}`.trim(),
+          monto: Number(po.totalPagar || 0),
+          metodoPago: po.formaPago,
+          nota: l.notas || '',
+          fecha: l.fechaPago || hoyISO(),
+          origen: 'liquidacion',
+          refTipo: 'liquidacion',
+          refId: l.id,
+        }));
+      });
+    } else if (Number(l.totalPagar || l.montoAlquiler || 0) > 0) {
       const own = _db.propietarios.find(x => x.id === l.propietarioId) || {};
-      const periodoLbl = l.mes || (l.meses && l.meses.length ? (l.meses.length > 1 ? `${l.meses[0]} a ${l.meses[l.meses.length - 1]}` : l.meses[0]) : '');
-      const movs = crearMovimientosPago(_db, {
+      movs = crearMovimientosPago(_db, {
         pagos: l.pagos,
         tipo: 'egreso',
         concepto: `Pago a propietario • ${own.nombre || 'Propietario'} • ${prop.direccion || 'Propiedad'} • ${periodoLbl}`.trim(),
@@ -507,6 +527,8 @@ export const api = {
         refTipo: 'liquidacion',
         refId: l.id,
       });
+    }
+    if (movs.length) {
       l.cajaMovimientoIds = movs.map(m => m.id);
       l.cajaMovimientoId = movs[0]?.id;
     }

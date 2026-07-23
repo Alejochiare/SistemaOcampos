@@ -147,6 +147,15 @@ select.field { cursor: pointer; appearance: none; padding-right: 2rem;
 }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
 
+/* ---------- RESPONSIVE — pantallas chicas ---------- */
+@media (max-width: 480px) {
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal { max-width: 100%; max-height: 94vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .modal-head, .modal-body, .modal-foot { padding-left: 1rem; padding-right: 1rem; }
+  .toast-wrap { left: .75rem; right: .75rem; max-width: none; bottom: 1rem; }
+  .kpi { padding: .9rem 1rem; }
+}
+
 /* ---------- TOAST ---------- */
 .toast-wrap { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 80; display: flex; flex-direction: column; gap: .7rem; max-width: 380px; }
 .toast {

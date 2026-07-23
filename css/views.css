@@ -76,7 +76,8 @@
 
 /* ---------- LIST ROWS ---------- */
 .list-row {
-  display: flex; align-items: center; gap: .9rem;
+  display: flex; align-items: center; gap: .9rem; row-gap: .5rem;
+  flex-wrap: wrap;
   padding: .9rem 1.25rem;
   border-bottom: 1px solid var(--border);
   transition: background var(--transition);
@@ -337,3 +338,16 @@
 .notif-item:hover { background: var(--surface-2); }
 .notif-item .ni-icon { width: 34px; height: 34px; border-radius: var(--r-sm); display: grid; place-items: center; flex-shrink: 0; }
 .notif-item .ni-icon svg { width: 17px; height: 17px; }
+
+/* ---------- RESPONSIVE — pantallas chicas ---------- */
+@media (max-width: 700px) {
+  .two-col-grid { grid-template-columns: 1fr; }
+  .prop-card-foot { gap: .5rem .9rem; }
+}
+@media (max-width: 480px) {
+  .prop-grid { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .7rem; }
+  .dash-grid-3 { grid-template-columns: 1fr; }
+  .list-row { padding: .8rem 1rem; gap: .6rem; }
+  .notif-panel { width: 100%; }
+}

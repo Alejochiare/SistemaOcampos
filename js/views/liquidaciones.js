@@ -40,16 +40,26 @@ function pagosBlockHTML() {
     </div>`;
 }
 
-/** Gestiona las líneas de pago dentro de un modal. `getTotal` debe devolver el total a pagar vigente. */
-function montarPagos(ctx, { getTotal }) {
-  const ov = ctx.overlay;
+/** Gestiona las líneas de pago dentro de un contenedor. `getTotal` debe devolver el total a pagar
+ *  vigente. `root` debe contener el `pagosBlockHTML()` correspondiente — al estar scopeado se puede
+ *  montar más de una instancia en el mismo modal (una por propietario, para co-propiedades). */
+function montarPagos(root, { getTotal }) {
+  const ov = root;
   const mostrarRef = (m) => ['Transferencia', 'Cheque'].includes(m);
   let pagos = [{ metodoPago: 'Efectivo', monto: getTotal(), referencia: '' }];
 
   const resumen = () => {
+    const total = Number(getTotal()) || 0;
+    // Con una sola línea de pago no hay nada que "repartir": el monto siempre
+    // tiene que ser el total vigente (si no, queda desactualizado al cambiar
+    // % de comisión, descuentos, etc. después de haber montado el control).
+    if (pagos.length === 1 && Number(pagos[0].monto) !== total) {
+      pagos[0].monto = total;
+      const inp = ov.querySelector('[data-pago-idx="0"] [data-f="monto"]');
+      if (inp && document.activeElement !== inp) inp.value = fmtMontoInput(total);
+    }
     const el = ov.querySelector('[data-pagos-resumen]');
     if (!el) return;
-    const total = Number(getTotal()) || 0;
     const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
     if (pagos.length > 1) {
       const dif = Math.round((total - asignado) * 100) / 100;
@@ -120,30 +130,58 @@ function clavesLiquidadas(liquidaciones) {
   const set = new Set();
   (liquidaciones || []).forEach(l => {
     const ids = (l.liquidadosCobros && l.liquidadosCobros.length) ? l.liquidadosCobros : (l.cobroId ? [l.cobroId] : []);
-    ids.forEach(cid => set.add(`${cid}::${l.propietarioId}`));
+    const ownerIds = (l.propietarios && l.propietarios.length) ? l.propietarios.map(p => p.propietarioId) : (l.propietarioId ? [l.propietarioId] : []);
+    ids.forEach(cid => ownerIds.forEach(oid => set.add(`${cid}::${oid}`)));
   });
   return set;
 }
 
-/* Agrupa candidatos (cobros pagados o meses impagos) por propietario, prorrateando el
-   monto de cada cobro según el % que le corresponde a cada dueño de la propiedad. */
-function agruparPorPropietario(candidatos, liquidadas, state) {
+/* Agrupa candidatos por propietario ÚNICO de la propiedad, prorrateando el monto de cada
+   cobro (siempre será su 100%, ya que no hay más dueños) — permite bundlear varias
+   propiedades del mismo dueño en una sola liquidación. Las propiedades con 2+ dueños se
+   agrupan aparte, ver `agruparPorPropiedadCoPropiedad`, para salir en UNA sola liquidación
+   con el reparto entre todos los dueños en vez de una liquidación por dueño. */
+function agruparPorPropietarioUnico(candidatos, liquidadas, state) {
   const { propietarios } = state;
   const grupos = {};
   candidatos.forEach(({ alq, cobro, inq, prop }) => {
-    sel.propietariosDePropiedad(prop).forEach(o => {
-      if (cobro.id && liquidadas.has(`${cobro.id}::${o.propietarioId}`)) return; // ya liquidado a este dueño
-      if (!grupos[o.propietarioId]) {
-        grupos[o.propietarioId] = {
-          propietarioId: o.propietarioId,
-          own: propietarios.find(x => x.id === o.propietarioId),
-          totalPropiedades: sel.propiedadesDe(o.propietarioId).length,
-          cobros: [],
-        };
-      }
-      const monto = Math.round((Number(cobro.monto) || 0) * (Number(o.porcentaje) || 0) / 100);
-      grupos[o.propietarioId].cobros.push({ alq, cobro, inq, prop, owner: o, monto });
-    });
+    const owners = sel.propietariosDePropiedad(prop);
+    if (owners.length !== 1) return; // co-propiedad: ver agruparPorPropiedadCoPropiedad
+    const o = owners[0];
+    if (cobro.id && liquidadas.has(`${cobro.id}::${o.propietarioId}`)) return; // ya liquidado a este dueño
+    if (!grupos[o.propietarioId]) {
+      grupos[o.propietarioId] = {
+        propietarioId: o.propietarioId,
+        own: propietarios.find(x => x.id === o.propietarioId),
+        totalPropiedades: sel.propiedadesDe(o.propietarioId).filter(p => sel.propietariosDePropiedad(p).length === 1).length,
+        cobros: [],
+      };
+    }
+    const monto = Math.round((Number(cobro.monto) || 0) * (Number(o.porcentaje) || 0) / 100);
+    grupos[o.propietarioId].cobros.push({ alq, cobro, inq, prop, owner: o, monto });
+  });
+  const arr = Object.values(grupos).map(g => {
+    const meses = [...new Set(g.cobros.map(c => c.cobro.mes))].sort();
+    return { ...g, meses };
+  });
+  arr.sort((a, b) => (a.meses[0] || '').localeCompare(b.meses[0] || ''));
+  return arr;
+}
+
+/* Agrupa candidatos de propiedades con 2+ dueños — una tarjeta por PROPIEDAD (no por
+   dueño), para que al liquidar salga una sola liquidación con el reparto entre todos los
+   dueños adentro, en vez de una liquidación separada por cada uno. */
+function agruparPorPropiedadCoPropiedad(candidatos, liquidadas) {
+  const grupos = {};
+  candidatos.forEach(({ alq, cobro, inq, prop }) => {
+    const owners = sel.propietariosDePropiedad(prop);
+    if (owners.length <= 1) return; // dueño único: ver agruparPorPropietarioUnico
+    const yaLiquidadoATodos = cobro.id && owners.every(o => liquidadas.has(`${cobro.id}::${o.propietarioId}`));
+    if (yaLiquidadoATodos) return;
+    if (!grupos[prop.id]) {
+      grupos[prop.id] = { esCoPropiedad: true, propiedadId: prop.id, prop, owners, cobros: [] };
+    }
+    grupos[prop.id].cobros.push({ alq, cobro, inq, prop, monto: Number(cobro.monto) || 0 });
   });
   const arr = Object.values(grupos).map(g => {
     const meses = [...new Set(g.cobros.map(c => c.cobro.mes))].sort();
@@ -181,8 +219,14 @@ function cobrosALiquidar(state) {
   });
 
   return {
-    cobrados: agruparPorPropietario(candidatosCobrados, liquidadas, state),
-    impagos:  agruparPorPropietario(candidatosImpagos, liquidadas, state),
+    cobrados: [
+      ...agruparPorPropietarioUnico(candidatosCobrados, liquidadas, state),
+      ...agruparPorPropiedadCoPropiedad(candidatosCobrados, liquidadas),
+    ],
+    impagos: [
+      ...agruparPorPropietarioUnico(candidatosImpagos, liquidadas, state),
+      ...agruparPorPropiedadCoPropiedad(candidatosImpagos, liquidadas),
+    ],
   };
 }
 
@@ -208,14 +252,22 @@ export default function liquidaciones(root) {
     const histPill = e.target.closest('[data-hist-filtro]');
     if (histPill) { histFiltro = histPill.dataset.histFiltro; render(); return; }
 
-    // Liquidar un grupo (todas las propiedades pendientes de un propietario, cobradas o adelanto)
+    // Liquidar un grupo (todas las propiedades pendientes de un propietario, o una
+    // co-propiedad completa, cobradas o adelanto)
     const btnLiq = e.target.closest('[data-liq-grupo]');
     if (btnLiq) {
-      const tipo = btnLiq.dataset.liqTipo; // 'cobrado' | 'impago'
-      const propietarioId = btnLiq.dataset.liqProp;
+      const tipoRaw = btnLiq.dataset.liqTipo; // 'cobrado' | 'impago' | 'cobrado-co' | 'impago-co'
+      const esCo = tipoRaw.endsWith('-co');
+      const tipo = esCo ? tipoRaw.replace('-co', '') : tipoRaw;
+      const key = btnLiq.dataset.liqProp;
       const lista = tipo === 'impago' ? pendientes.impagos : pendientes.cobrados;
-      const grupo = lista.find(g => g.propietarioId === propietarioId);
-      if (grupo) abrirFormLiquidacionGrupal({ ...grupo, adelanto: tipo === 'impago' }, render);
+      if (esCo) {
+        const grupo = lista.find(g => g.esCoPropiedad && g.propiedadId === key);
+        if (grupo) abrirFormLiquidacionCoPropiedad({ ...grupo, adelanto: tipo === 'impago' }, render);
+      } else {
+        const grupo = lista.find(g => !g.esCoPropiedad && g.propietarioId === key);
+        if (grupo) abrirFormLiquidacionGrupal({ ...grupo, adelanto: tipo === 'impago' }, render);
+      }
       return;
     }
 
@@ -243,12 +295,16 @@ function pintar(el, filtro, pendientes, histFiltro) {
   const historial  = (list || []).map(l => {
     const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
     const prop = state.propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
-    const own  = state.propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
+    const esMulti = Array.isArray(l.propietarios) && l.propietarios.length > 0;
+    const own  = esMulti ? null : (state.propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {});
+    const owns = esMulti ? l.propietarios.map(po => ({ ...po, own: state.propietarios.find(p => p.id === po.propietarioId) })) : null;
     const inq  = state.clientes.find(c => c.id === alq.inquilinoId) || {};
 
-    // Para liquidaciones grupales, contar propiedades distintas (no cobros individuales)
+    // Para liquidaciones grupales de UN dueño con varias propiedades (bundle), contar
+    // propiedades distintas. Las liquidaciones de co-propiedad ya traen `propiedadId`
+    // seteado (una sola propiedad), así que no cuentan como "grupales" acá.
     let nPropsGrupal = 0;
-    if (l.liquidadosCobros && l.liquidadosCobros.length > 1) {
+    if (!l.propiedadId && l.liquidadosCobros && l.liquidadosCobros.length > 1) {
       const propIds = new Set();
       l.liquidadosCobros.forEach(cobroId => {
         const a = alquileres.find(a => (a.cobros || []).some(c => c.id === cobroId));
@@ -257,7 +313,7 @@ function pintar(el, filtro, pendientes, histFiltro) {
       nPropsGrupal = propIds.size;
     }
 
-    return { ...l, _alq: alq, _prop: prop, _own: own, _inq: inq, _nPropsGrupal: nPropsGrupal };
+    return { ...l, _alq: alq, _prop: prop, _own: own, _owns: owns, _inq: inq, _nPropsGrupal: nPropsGrupal };
   }).sort((a, b) => (b.fechaPago || '').localeCompare(a.fechaPago || ''));
 
   const historialFiltrado = histFiltro === 'cobradas'   ? historial.filter(l => l.cobradoInquilino !== false)
@@ -325,6 +381,8 @@ function renderPendientes(pendientes) {
 }
 
 function cardGrupo(grupo, tipo) {
+  if (grupo.esCoPropiedad) return cardGrupoCoPropiedad(grupo, tipo);
+
   const esImpago = tipo === 'impago';
   const totalCobros = grupo.cobros.reduce((s, c) => s + (c.monto || 0), 0);
   const nProps = new Set(grupo.cobros.map(c => c.prop?.id)).size;
@@ -370,6 +428,44 @@ function cardGrupo(grupo, tipo) {
     </div>`;
 }
 
+/* Tarjeta para una propiedad con 2+ dueños — liquidar acá genera UNA sola liquidación
+   con el reparto entre todos los dueños adentro (ver abrirFormLiquidacionCoPropiedad). */
+function cardGrupoCoPropiedad(grupo, tipo) {
+  const { propietarios } = getState();
+  const esImpago = tipo === 'impago';
+  const totalCobros = grupo.cobros.reduce((s, c) => s + (c.monto || 0), 0);
+  const mesesLabelStr = grupo.meses.length === 1
+    ? mesLabel(grupo.meses[0])
+    : `${mesLabel(grupo.meses[0])} – ${mesLabel(grupo.meses[grupo.meses.length - 1])}`;
+  const nombresOwners = grupo.owners
+    .map(o => `${propietarios.find(p => p.id === o.propietarioId)?.nombre || '—'} (${o.porcentaje}%)`)
+    .join(' + ');
+
+  return `
+    <div class="card" style="padding:1rem 1.25rem;border-left:3px solid ${esImpago ? 'var(--info)' : 'var(--warning)'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.75rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
+            <span style="font-weight:700;font-size:1.05rem">${esc(nombresOwners)}</span>
+            <span class="badge badge-neutral" style="font-size:.72rem">👥 Co-propiedad</span>
+            <span class="badge ${esImpago ? 'badge-info' : 'badge-warning'}" style="font-size:.72rem">${mesesLabelStr}</span>
+            ${esImpago ? `<span class="badge badge-info" style="font-size:.72rem">⏳ Adelanto</span>` : ''}
+          </div>
+          <div style="font-size:.82rem;color:var(--text-soft)">
+            ${esc(grupo.prop?.direccion || '—')}
+            <span style="color:var(--text-faint)"> · ${grupo.cobros.map(c => `${mesLabel(c.cobro.mes)} · ${esc(c.inq?.nombre || '—')} · ${fmt$(c.monto)}`).join(' · ')}</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem">
+          <div style="font-size:1.3rem;font-weight:900;color:${esImpago ? 'var(--info)' : 'var(--warning)'}">${fmt$(totalCobros)}</div>
+          <button class="btn btn-primary btn-sm" data-liq-grupo data-liq-tipo="${tipo}-co" data-liq-prop="${grupo.propiedadId}">
+            ${esImpago ? 'Adelantar liquidación →' : 'Liquidar →'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderHistorial(historial, histFiltro) {
   const chips = [
     { id: 'todas',      label: 'Todas' },
@@ -397,17 +493,21 @@ function renderHistorial(historial, histFiltro) {
     ${chipsHTML}
     <div style="display:flex;flex-direction:column;gap:.6rem">
       ${historial.map(l => {
-        const hon     = l.montoHonorarios || Math.round((l.montoAlquiler || 0) * (l.pctHonorarios || 0) / 100);
+        const hon     = l.montoHonorarios ?? Math.round((l.montoAlquiler || 0) * (l.pctHonorarios || 0) / 100);
         const descTot = (l.descuentos || []).reduce((s, d) => s + (Number(d.monto) || 0), 0);
-        const esGrupal = l.liquidadosCobros && l.liquidadosCobros.length > 1;
+        const esGrupal = !l.propiedadId && l.liquidadosCobros && l.liquidadosCobros.length > 1;
         const esAdelanto = l.cobradoInquilino === false;
+        const nombreCabecera = l._owns
+          ? l._owns.map(o => `${esc(o.own?.nombre || '—')} (${o.porcentaje}%)`).join(' + ')
+          : esc(l._own?.nombre || '—');
         return `
         <div class="card" data-liq-id="${l.id}" style="padding:1rem 1.25rem;${esAdelanto ? 'border-left:3px solid var(--info)' : ''}">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
-                <span style="font-weight:700">${esc(l._own?.nombre || '—')}</span>
+                <span style="font-weight:700">${nombreCabecera}</span>
                 <span class="badge badge-success">Liquidado</span>
+                ${l._owns ? `<span class="badge badge-neutral" style="font-size:.72rem">👥 Co-propiedad</span>` : ''}
                 ${esGrupal ? `<span class="badge badge-info" style="font-size:.72rem">📋 Grupal</span>` : ''}
                 ${esAdelanto ? `<span class="badge badge-info" style="font-size:.72rem">⏳ Adelanto (no cobrado al inquilino)</span>` : ''}
                 ${l.porcentajeReparto != null && l.porcentajeReparto < 100 ? `<span class="badge badge-neutral" style="font-size:.72rem">${l.porcentajeReparto}% de la propiedad</span>` : ''}
@@ -423,12 +523,16 @@ function renderHistorial(historial, histFiltro) {
               </div>
               <div style="display:flex;gap:1.25rem;flex-wrap:wrap;font-size:.8rem">
                 <span><span style="color:var(--text-soft)">Alquiler: </span><strong>${fmt$(l.montoAlquiler)}</strong></span>
-                <span><span style="color:var(--text-soft)">Comisión (${l.pctHonorarios || 0}%): </span><strong style="color:var(--danger)">−${fmt$(hon)}</strong></span>
+                <span><span style="color:var(--text-soft)">Comisión${l._owns ? '' : ` (${l.pctHonorarios || 0}%)`}: </span><strong style="color:var(--danger)">−${fmt$(hon)}</strong></span>
                 ${descTot ? `<span><span style="color:var(--text-soft)">Desc.: </span><strong style="color:var(--danger)">−${fmt$(descTot)}</strong></span>` : ''}
                 <span><span style="color:var(--text-soft)">Pagado: </span><strong style="color:var(--success)">${fmt$(l.totalPagar)}</strong></span>
               </div>
+              ${l._owns ? `
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:.3rem;display:flex;flex-direction:column;gap:.15rem">
+                ${l._owns.map(o => `<div>• ${esc(o.own?.nombre || '—')} — ${o.porcentaje}% · ${fmt$(o.totalPagar)}${o.formaPago ? ' · ' + esc(o.formaPago) : ''}</div>`).join('')}
+              </div>` : ''}
               <div style="font-size:.78rem;color:var(--text-faint);margin-top:.35rem">
-                ${fmtFecha(l.fechaPago)} · ${esc(l.formaPago || 'Efectivo')}
+                ${fmtFecha(l.fechaPago)}${l._owns ? '' : ' · ' + esc(l.formaPago || 'Efectivo')}
                 ${l.notas ? ' · ' + esc(l.notas) : ''}
               </div>
             </div>
@@ -450,11 +554,31 @@ function generarPDF(id) {
   const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
   const inq  = clientes.find(c => c.id === alq.inquilinoId) || {};
   const prop = propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
-  const own  = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
   const cobroSint = { monto: l.montoAlquiler, mes: l.mes, fechaPago: l.fechaPago };
+  const periodoLabel = !l.mes && l.meses && l.meses.length > 1
+    ? `${mesLabel(l.meses[0])} – ${mesLabel(l.meses[l.meses.length - 1])}`
+    : null;
+
+  if (Array.isArray(l.propietarios) && l.propietarios.length) {
+    const propietariosImpresion = l.propietarios.map(po => ({
+      nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
+      porcentaje: po.porcentaje,
+      montoBruto: po.montoBruto,
+      pctHonorarios: po.pagaComision ? po.comisionPct : 0,
+      montoHonorarios: po.montoHonorarios,
+      totalPagar: po.totalPagar,
+      formaPago: po.formaPago,
+      pagos: po.pagos || [],
+    }));
+    imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: null,
+      propietarios: propietariosImpresion, descuentos: l.descuentos || [], periodoLabel });
+    return;
+  }
+
+  const own = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
   imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
     pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo',
-    pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto });
+    pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto, periodoLabel });
 }
 
 /* ── Formulario liquidar GRUPAL (múltiples propiedades de un propietario) ── */
@@ -716,9 +840,304 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
       recalcular();
       renderDescs();
 
-      pagosCtl = montarPagos(ctx, { getTotal: () => valorMonto(q('#liqTotal').value) });
+      pagosCtl = montarPagos(ctx.overlay, { getTotal: () => valorMonto(q('#liqTotal').value) });
       q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
     }
+  });
+}
+
+/* ── Formulario liquidar CO-PROPIEDAD: una propiedad con 2+ dueños → UNA sola
+   liquidación con el reparto entre todos los dueños adentro (no una por dueño). ── */
+export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
+  const { propietarios } = getState();
+  const adelanto = !!grupo.adelanto;
+  const prop = grupo.prop;
+  const dueños = grupo.owners;
+
+  const totalMonto = grupo.cobros.reduce((s, c) => s + (c.monto || 0), 0);
+  const hoy = new Date().toISOString().slice(0, 10);
+  const mesesLabelStr = grupo.meses.length === 1
+    ? mesLabel(grupo.meses[0])
+    : `${mesLabel(grupo.meses[0])} – ${mesLabel(grupo.meses[grupo.meses.length - 1])}`;
+
+  openModal({
+    title: `${adelanto ? 'Adelanto a propietarios' : 'Liquidación'} — ${esc(prop?.direccion || '—')} — ${mesesLabelStr}`,
+    size: 'xl',
+    bodyHTML: `
+      <form id="liqCoForm">
+        ${adelanto ? `
+        <div style="padding:.85rem 1rem;border-radius:var(--r-md);background:color-mix(in srgb,var(--info) 10%,transparent);border:1px solid var(--info);margin-bottom:1.1rem;font-size:.85rem">
+          ⚠ El inquilino todavía no pagó ${grupo.meses.length > 1 ? 'estos meses' : 'este mes'}. Este pago es un <strong>adelanto</strong> de la inmobiliaria a los propietarios.
+        </div>` : ''}
+
+        <div style="background:var(--surface-2);border-radius:var(--r-md);padding:1rem;margin-bottom:1.25rem;border:1px solid var(--border)">
+          <div style="font-size:.72rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.5rem">${esc(prop?.direccion || '—')} · ${adelanto ? 'Meses' : 'Cobros'} del período</div>
+          <div style="display:flex;flex-direction:column;gap:.35rem">
+            ${grupo.cobros.map(c => `
+              <div style="display:flex;justify-content:space-between;font-size:.85rem">
+                <span>${mesLabel(c.cobro.mes)} · ${esc(c.inq?.nombre || '—')}</span>
+                <strong>${fmt$(c.monto)}</strong>
+              </div>`).join('')}
+          </div>
+          <div style="border-top:2px solid var(--border);margin-top:.75rem;padding-top:.75rem;display:flex;justify-content:space-between;align-items:center;font-size:1.1rem;font-weight:800">
+            <span>TOTAL ${adelanto ? 'A ADELANTAR' : 'COBRADO'}</span>
+            <span style="color:var(--primary);font-size:1.3rem">${fmt$(totalMonto)}</span>
+          </div>
+        </div>
+
+        <h3 class="form-section-title">Reparto entre propietarios</h3>
+        <div id="repartoBlk" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.4rem">
+          ${dueños.map((o, i) => `
+            <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;padding:.6rem .75rem;background:var(--surface-2);border-radius:var(--r-sm)" data-reparto-idx="${i}">
+              <div style="flex:1;min-width:140px;font-weight:600">${esc(propietarios.find(p => p.id === o.propietarioId)?.nombre || '—')}</div>
+              <label style="font-size:.75rem;color:var(--text-soft)">%
+                <input type="number" min="0" max="100" step="0.5" class="reparto-pct" value="${o.porcentaje}" style="width:65px;margin-left:.3rem">
+              </label>
+              <label style="font-size:.75rem;color:var(--text-soft);display:flex;align-items:center;gap:.3rem">
+                <input type="checkbox" class="reparto-paga" ${o.pagaComision ? 'checked' : ''}> ¿Paga comisión?
+              </label>
+              <label style="font-size:.75rem;color:var(--text-soft)">% comisión
+                <input type="number" min="0" max="100" step="0.5" class="reparto-comision" value="${o.comisionPct ?? 10}" style="width:60px;margin-left:.3rem">
+              </label>
+              <div class="reparto-monto" style="font-weight:700;min-width:90px;text-align:right"></div>
+            </div>`).join('')}
+        </div>
+        <div id="repartoResumen" style="font-size:.78rem;margin-bottom:1.1rem"></div>
+
+        <h3 class="form-section-title">Descuentos / deducciones</h3>
+        <div id="descBlk" style="margin-bottom:.5rem"></div>
+        <button type="button" id="btnAddDesc" class="btn btn-sm btn-ghost" style="margin-bottom:1.25rem">${icon('plus')} Agregar descuento</button>
+
+        <div class="form-grid" style="margin-bottom:1.25rem">
+          <div class="form-group">
+            <label>Fecha de pago <span class="req">*</span></label>
+            <input name="fechaPago" type="date" value="${hoy}">
+          </div>
+          <div class="form-group full">
+            <label>Notas</label>
+            <input name="notas" placeholder="Observaciones opcionales">
+          </div>
+        </div>
+
+        <h3 class="form-section-title">Forma de pago por propietario</h3>
+        <div id="pagosPorDueno" style="display:flex;flex-direction:column;gap:1rem"></div>
+      </form>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
+                 <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
+                 <button class="btn btn-primary" id="btnGuardarPDF">Guardar${adelanto ? ' adelanto' : ''} y generar PDF</button>`,
+    onMount(ctx) {
+      const q = (s) => ctx.overlay.querySelector(s);
+      const pagosCtls = [];
+
+      const descuentosTotal = () => [...q('#descBlk').querySelectorAll('[data-desc-monto]')]
+        .reduce((s, el) => s + valorMonto(el.value), 0);
+
+      const montoOwnerActual = (i) => {
+        const row = ctx.overlay.querySelectorAll('[data-reparto-idx]')[i];
+        if (!row) return 0;
+        const pct    = Number(row.querySelector('.reparto-pct').value) || 0;
+        const paga   = row.querySelector('.reparto-paga').checked;
+        const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
+        const desc   = descuentosTotal();
+        const montoOwner = Math.round(totalMonto * pct / 100);
+        const descOwner  = Math.round(desc * pct / 100);
+        const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+        return montoOwner - honOwner - descOwner;
+      };
+
+      const recalcular = () => {
+        const desc = descuentosTotal();
+        let totalHon = 0, totalPagarSum = 0;
+        ctx.overlay.querySelectorAll('[data-reparto-idx]').forEach((row, i) => {
+          const pct    = Number(row.querySelector('.reparto-pct').value) || 0;
+          const paga   = row.querySelector('.reparto-paga').checked;
+          const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
+          const montoOwner = Math.round(totalMonto * pct / 100);
+          const descOwner  = Math.round(desc * pct / 100);
+          const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+          const totalOwner = montoOwner - honOwner - descOwner;
+          row.querySelector('.reparto-monto').textContent = fmt$(totalOwner);
+          totalHon += honOwner;
+          totalPagarSum += totalOwner;
+          pagosCtls[i]?.refrescarTotal();
+        });
+        const sumaPct = [...ctx.overlay.querySelectorAll('.reparto-pct')].reduce((s, i) => s + (Number(i.value) || 0), 0);
+        const resumen = q('#repartoResumen');
+        if (resumen) {
+          resumen.textContent = `% asignado: ${sumaPct}% de 100% · Comisión total: ${fmt$(totalHon)} · Total a repartir: ${fmt$(totalPagarSum)}`;
+          resumen.style.color = Math.round(sumaPct) === 100 ? 'var(--success)' : 'var(--warning)';
+        }
+      };
+
+      ctx.overlay.querySelectorAll('.reparto-pct, .reparto-paga, .reparto-comision').forEach(inp => {
+        inp.addEventListener('input', recalcular);
+        inp.addEventListener('change', recalcular);
+      });
+
+      const renderPagosPorDueno = () => {
+        const blk = q('#pagosPorDueno');
+        blk.innerHTML = dueños.map((o, i) => `
+          <div data-pago-dueno="${i}">
+            <div style="font-weight:600;font-size:.85rem;margin-bottom:.4rem">${esc(propietarios.find(p => p.id === o.propietarioId)?.nombre || '—')}</div>
+            ${pagosBlockHTML()}
+          </div>`).join('');
+        dueños.forEach((o, i) => {
+          const cont = blk.querySelector(`[data-pago-dueno="${i}"]`);
+          pagosCtls[i] = montarPagos(cont, { getTotal: () => montoOwnerActual(i) });
+        });
+      };
+
+      const renderDescs = () => {
+        const block = q('#descBlk');
+        const form = q('#liqCoForm');
+        block.innerHTML = (form.descuentos || []).map((d, i) => `
+          <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem">
+            <input type="text" placeholder="Concepto" value="${esc(d.concepto || '')}" data-desc-concepto="${i}" style="flex:1">
+            <input type="text" inputmode="numeric" class="input-monto" placeholder="Monto" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}" style="width:100px">
+            <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger)">${icon('trash')}</button>
+          </div>`).join('');
+        block.querySelectorAll('[data-desc-monto]').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = Number(el.dataset.descMonto);
+            if (form.descuentos?.[idx]) form.descuentos[idx].monto = valorMonto(el.value);
+            recalcular();
+          });
+        });
+      };
+
+      q('#btnAddDesc').addEventListener('click', () => {
+        const form = q('#liqCoForm');
+        form.descuentos = form.descuentos || [];
+        form.descuentos.push({ concepto: '', monto: 0 });
+        renderDescs();
+        recalcular();
+      });
+
+      q('#descBlk').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-del-desc]');
+        if (btn) {
+          const idx = Number(btn.dataset.delDesc);
+          const form = q('#liqCoForm');
+          if (form.descuentos) form.descuentos.splice(idx, 1);
+          renderDescs();
+          recalcular();
+        }
+      });
+
+      renderPagosPorDueno();
+      renderDescs();
+      recalcular();
+
+      const guardar = async (conPDF) => {
+        const f = q('#liqCoForm');
+        if (!f.fechaPago.value) { toast('Indicá la fecha de pago', { tipo: 'warning' }); return; }
+
+        const filas = [...ctx.overlay.querySelectorAll('[data-reparto-idx]')].map((row, i) => ({
+          propietarioId: dueños[i].propietarioId,
+          porcentaje:    Number(row.querySelector('.reparto-pct').value) || 0,
+          pagaComision:  row.querySelector('.reparto-paga').checked,
+          comisionPct:   Number(row.querySelector('.reparto-comision').value) || 0,
+        }));
+        const sumaPct = filas.reduce((s, fl) => s + fl.porcentaje, 0);
+        if (Math.round(sumaPct) !== 100) {
+          toast('El % repartido entre los propietarios debe sumar 100%', { tipo: 'warning' });
+          return;
+        }
+
+        const descuentos = (f.descuentos || []).filter(d => d.concepto && d.monto);
+        const descTotal = descuentos.reduce((s, d) => s + (Number(d.monto) || 0), 0);
+
+        const propietariosData = [];
+        for (let i = 0; i < filas.length; i++) {
+          const fila = filas[i];
+          const nombreOwner = propietarios.find(p => p.id === fila.propietarioId)?.nombre || '';
+          const pagos = pagosCtls[i]?.getPagos() || [];
+          if (!pagos.length) { toast(`Indicá la forma de pago de ${esc(nombreOwner)}`, { tipo: 'warning' }); return; }
+          const montoOwner = Math.round(totalMonto * fila.porcentaje / 100);
+          const descOwner  = Math.round(descTotal * fila.porcentaje / 100);
+          const honOwner   = fila.pagaComision ? Math.round(montoOwner * fila.comisionPct / 100) : 0;
+          const totalOwner = montoOwner - honOwner - descOwner;
+          const sumaPagos  = pagos.reduce((s, p) => s + p.monto, 0);
+          if (Math.round(sumaPagos * 100) !== Math.round(totalOwner * 100)) {
+            toast(`La forma de pago de ${esc(nombreOwner)} no coincide con su total`, { tipo: 'warning' });
+            return;
+          }
+          propietariosData.push({
+            propietarioId: fila.propietarioId,
+            porcentaje: fila.porcentaje,
+            pagaComision: fila.pagaComision,
+            comisionPct: fila.pagaComision ? fila.comisionPct : 0,
+            montoBruto: montoOwner,
+            montoHonorarios: honOwner,
+            descuentoMonto: descOwner,
+            totalPagar: totalOwner,
+            formaPago: pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago,
+            pagos,
+          });
+        }
+
+        // Si veníamos de "adelanto", materializar los cobros placeholder (sin id) antes de guardar
+        const idsLiquidados = [];
+        for (const item of grupo.cobros) {
+          let cobroId = item.cobro.id;
+          if (!cobroId) {
+            const nuevo = await actions.addCobro(item.alq.id, {
+              mes: item.cobro.mes, monto: item.cobro.monto, montoAlquiler: item.cobro.monto, pagado: false,
+            });
+            cobroId = nuevo?.id;
+          }
+          if (cobroId) idsLiquidados.push(cobroId);
+        }
+
+        const data = {
+          propiedadId: prop.id,
+          alquilerId: grupo.cobros[0]?.alq?.id || null,
+          propietarioId: null,
+          propietarios: propietariosData,
+          liquidadosCobros: idsLiquidados,
+          meses: grupo.meses,
+          mes: grupo.meses.length === 1 ? grupo.meses[0] : null,
+          montoAlquiler: totalMonto,
+          montoHonorarios: propietariosData.reduce((s, p) => s + p.montoHonorarios, 0),
+          totalPagar: propietariosData.reduce((s, p) => s + p.totalPagar, 0),
+          descuentos,
+          estado: 'pagada',
+          cobradoInquilino: !adelanto,
+          fechaPago: f.fechaPago.value,
+          notas: f.notas.value || null,
+        };
+
+        const liq = await actions.createLiquidacion(data);
+
+        // Persistir el reparto confirmado en la propiedad para la próxima vez
+        await actions.updatePropiedad(prop.id, {
+          propietarios: filas.map(fl => ({ propietarioId: fl.propietarioId, porcentaje: fl.porcentaje, pagaComision: fl.pagaComision, comisionPct: fl.comisionPct })),
+        });
+
+        if (conPDF && liq) {
+          imprimirLiquidacion({
+            alq: {}, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
+            inquilino: {}, propiedad: prop, propietario: null,
+            propietarios: propietariosData.map(po => ({
+              nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
+              porcentaje: po.porcentaje, montoBruto: po.montoBruto,
+              pctHonorarios: po.pagaComision ? po.comisionPct : 0,
+              montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
+              formaPago: po.formaPago, pagos: po.pagos,
+            })),
+            descuentos: liq.descuentos || [],
+            periodoLabel: mesesLabelStr,
+          });
+        }
+
+        toast(adelanto ? 'Adelanto registrado' : 'Liquidación registrada');
+        ctx.close();
+        onDone?.();
+      };
+
+      q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
+      q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
+    },
   });
 }
 
@@ -802,18 +1221,17 @@ export function abrirFormLiquidacion(pre, onDone) {
             <label>Fecha de pago <span class="req">*</span></label>
             <input name="fechaPago" type="date" value="${hoy}">
           </div>
-          ${multi ? `
-          <div class="form-group">
-            <label>Forma de pago (para todos los propietarios)</label>
-            <select id="formaPagoSimple">
-              ${METODOS_PAGO.map(m => `<option value="${m.id}">${m.icon} ${m.id}</option>`).join('')}
-            </select>
-          </div>` : pagosBlockHTML()}
+          ${!multi ? pagosBlockHTML() : ''}
           <div class="form-group full">
             <label>Notas</label>
             <input name="notas" placeholder="Observaciones opcionales">
           </div>
         </div>
+
+        ${multi ? `
+        <h3 class="form-section-title">Forma de pago por propietario</h3>
+        <div id="pagosPorDueno" style="display:flex;flex-direction:column;gap:1rem"></div>
+        ` : ''}
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
@@ -821,9 +1239,23 @@ export function abrirFormLiquidacion(pre, onDone) {
     onMount(ctx) {
       const q = (s) => ctx.overlay.querySelector(s);
       let pagosCtl = null;
+      const pagosCtls = [];
 
       const descuentosTotal = () => [...ctx.overlay.querySelectorAll('[name^="desc_monto"]')]
         .reduce((s, i) => s + valorMonto(i.value), 0);
+
+      const montoOwnerActual = (i) => {
+        const row = ctx.overlay.querySelectorAll('[data-reparto-idx]')[i];
+        if (!row) return 0;
+        const pct    = Number(row.querySelector('.reparto-pct').value) || 0;
+        const paga   = row.querySelector('.reparto-paga').checked;
+        const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
+        const desc   = descuentosTotal();
+        const montoOwner = Math.round(monto * pct / 100);
+        const descOwner  = Math.round(desc * pct / 100);
+        const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+        return montoOwner - honOwner - descOwner;
+      };
 
       let recalcular;
 
@@ -831,7 +1263,7 @@ export function abrirFormLiquidacion(pre, onDone) {
         recalcular = () => {
           const desc = descuentosTotal();
           let totalHon = 0, totalPagarSum = 0;
-          ctx.overlay.querySelectorAll('[data-reparto-idx]').forEach(row => {
+          ctx.overlay.querySelectorAll('[data-reparto-idx]').forEach((row, i) => {
             const pct    = Number(row.querySelector('.reparto-pct').value) || 0;
             const paga   = row.querySelector('.reparto-paga').checked;
             const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
@@ -842,6 +1274,7 @@ export function abrirFormLiquidacion(pre, onDone) {
             row.querySelector('.reparto-monto').textContent = fmt$(totalOwner);
             totalHon += honOwner;
             totalPagarSum += totalOwner;
+            pagosCtls[i]?.refrescarTotal();
           });
           const sumaPct = [...ctx.overlay.querySelectorAll('.reparto-pct')].reduce((s, i) => s + (Number(i.value) || 0), 0);
           const resumen = q('#repartoResumen');
@@ -853,6 +1286,17 @@ export function abrirFormLiquidacion(pre, onDone) {
         ctx.overlay.querySelectorAll('.reparto-pct, .reparto-paga, .reparto-comision').forEach(inp => {
           inp.addEventListener('input', recalcular);
           inp.addEventListener('change', recalcular);
+        });
+
+        const blk = q('#pagosPorDueno');
+        blk.innerHTML = dueños.map((o, i) => `
+          <div data-pago-dueno="${i}">
+            <div style="font-weight:600;font-size:.85rem;margin-bottom:.4rem">${esc(propietarios.find(p => p.id === o.propietarioId)?.nombre || '—')}</div>
+            ${pagosBlockHTML()}
+          </div>`).join('');
+        dueños.forEach((o, i) => {
+          const cont = blk.querySelector(`[data-pago-dueno="${i}"]`);
+          pagosCtls[i] = montarPagos(cont, { getTotal: () => montoOwnerActual(i) });
         });
       } else {
         recalcular = () => {
@@ -891,7 +1335,7 @@ export function abrirFormLiquidacion(pre, onDone) {
       q('#btnAddDesc').addEventListener('click', addDescRow);
 
       if (!multi) {
-        pagosCtl = montarPagos(ctx, { getTotal: () => valorMonto(q('#liqTotal').value) });
+        pagosCtl = montarPagos(ctx.overlay, { getTotal: () => valorMonto(q('#liqTotal').value) });
         q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
       }
 
@@ -957,7 +1401,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           return;
         }
 
-        // Multi-propietario: una liquidación por dueño, prorrateada
+        // Multi-propietario: UNA sola liquidación con el reparto de todos los dueños adentro
         const filas = [...ctx.overlay.querySelectorAll('[data-reparto-idx]')].map((row, i) => ({
           propietarioId: dueños[i].propietarioId,
           porcentaje:    Number(row.querySelector('.reparto-pct').value) || 0,
@@ -970,58 +1414,76 @@ export function abrirFormLiquidacion(pre, onDone) {
           return;
         }
 
-        const formaPago = q('#formaPagoSimple').value;
-        const liquidacionesCreadas = [];
-        for (const fila of filas) {
+        const descTotal = descuentos.reduce((s, d) => s + (Number(d.monto) || 0), 0);
+        const propietariosData = [];
+        for (let i = 0; i < filas.length; i++) {
+          const fila = filas[i];
+          const nombreOwner = propietarios.find(p => p.id === fila.propietarioId)?.nombre || '';
+          const pagos = pagosCtls[i]?.getPagos() || [];
+          if (!pagos.length) { toast(`Indicá la forma de pago de ${esc(nombreOwner)}`, { tipo: 'warning' }); return; }
           const montoOwner = Math.round(monto * fila.porcentaje / 100);
-          const descOwner  = descuentos.map(d => ({ concepto: d.concepto, monto: Math.round(d.monto * fila.porcentaje / 100) }));
-          const descOwnerTotal = descOwner.reduce((s, d) => s + d.monto, 0);
-          const honOwner = fila.pagaComision ? Math.round(montoOwner * fila.comisionPct / 100) : 0;
-          const totalOwner = montoOwner - honOwner - descOwnerTotal;
-
-          const data = {
-            alquilerId: alq.id,
-            propiedadId: alq.propiedadId,
+          const descOwner  = Math.round(descTotal * fila.porcentaje / 100);
+          const honOwner   = fila.pagaComision ? Math.round(montoOwner * fila.comisionPct / 100) : 0;
+          const totalOwner = montoOwner - honOwner - descOwner;
+          const sumaPagos  = pagos.reduce((s, p) => s + p.monto, 0);
+          if (Math.round(sumaPagos * 100) !== Math.round(totalOwner * 100)) {
+            toast(`La forma de pago de ${esc(nombreOwner)} no coincide con su total`, { tipo: 'warning' });
+            return;
+          }
+          propietariosData.push({
             propietarioId: fila.propietarioId,
-            cobroId: cobro.id,
-            liquidadosCobros: cobro.id ? [cobro.id] : [],
-            mes: cobro.mes,
-            montoAlquiler: montoOwner,
-            pctHonorarios: fila.pagaComision ? fila.comisionPct : 0,
+            porcentaje: fila.porcentaje,
+            pagaComision: fila.pagaComision,
+            comisionPct: fila.pagaComision ? fila.comisionPct : 0,
+            montoBruto: montoOwner,
             montoHonorarios: honOwner,
+            descuentoMonto: descOwner,
             totalPagar: totalOwner,
-            descuentos: descOwner,
-            estado: 'pagada',
-            cobradoInquilino: cobro.pagado !== false,
-            porcentajeReparto: fila.porcentaje,
-            fechaPago: f.fechaPago.value,
-            formaPago,
-            pagos: [{ metodoPago: formaPago, monto: totalOwner, referencia: null }],
-            notas: f.notas.value || null,
-          };
-          const liq = await actions.createLiquidacion(data);
-          liquidacionesCreadas.push({ liq, fila });
+            formaPago: pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago,
+            pagos,
+          });
         }
+
+        const data = {
+          alquilerId: alq.id,
+          propiedadId: alq.propiedadId,
+          propietarioId: null,
+          propietarios: propietariosData,
+          cobroId: cobro.id,
+          liquidadosCobros: cobro.id ? [cobro.id] : [],
+          mes: cobro.mes,
+          montoAlquiler: monto,
+          montoHonorarios: propietariosData.reduce((s, p) => s + p.montoHonorarios, 0),
+          totalPagar: propietariosData.reduce((s, p) => s + p.totalPagar, 0),
+          descuentos,
+          estado: 'pagada',
+          cobradoInquilino: cobro.pagado !== false,
+          fechaPago: f.fechaPago.value,
+          notas: f.notas.value || null,
+        };
+        const liq = await actions.createLiquidacion(data);
 
         // Persistir el reparto confirmado en la propiedad para la próxima vez
         await actions.updatePropiedad(prop.id, {
           propietarios: filas.map(fl => ({ propietarioId: fl.propietarioId, porcentaje: fl.porcentaje, pagaComision: fl.pagaComision, comisionPct: fl.comisionPct })),
         });
 
-        if (conPDF) {
-          liquidacionesCreadas.forEach(({ liq, fila }) => {
-            const propietarioObj = propietarios.find(p => p.id === fila.propietarioId);
-            imprimirLiquidacion({
-              alq, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
-              inquilino: inq, propiedad: prop, propietario: propietarioObj,
-              pctHonorarios: liq.pctHonorarios || 0, descuentos: liq.descuentos || [],
-              formaPago: liq.formaPago || 'Efectivo', pagos: liq.pagos || [],
-              porcentajeReparto: liq.porcentajeReparto,
-            });
+        if (conPDF && liq) {
+          imprimirLiquidacion({
+            alq, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
+            inquilino: inq, propiedad: prop, propietario: null,
+            propietarios: propietariosData.map(po => ({
+              nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
+              porcentaje: po.porcentaje, montoBruto: po.montoBruto,
+              pctHonorarios: po.pagaComision ? po.comisionPct : 0,
+              montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
+              formaPago: po.formaPago, pagos: po.pagos,
+            })),
+            descuentos: liq.descuentos || [],
           });
         }
 
-        toast('Liquidaciones registradas para los propietarios');
+        toast('Liquidación registrada');
         ctx.close(); onDone?.();
       };
 

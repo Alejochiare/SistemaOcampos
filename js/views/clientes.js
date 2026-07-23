@@ -32,7 +32,9 @@ export default function clientes(root, param) {
 
 function pintarLista(el, filtro, interesFiltro) {
   const { clientes } = getState();
-  let lista = clientes.filter(c => {
+  // Un inquilino que ya firmó contrato deja de ser un prospecto: no se lista más acá.
+  const prospectos = clientes.filter(c => !sel.tieneAlquilerVigente(c.id));
+  let lista = prospectos.filter(c => {
     const ok = !filtro || `${c.nombre} ${c.telefono||''} ${c.email||''} ${c.dni||''}`.toLowerCase().includes(filtro);
     const okI = !interesFiltro || c.interes === interesFiltro;
     return ok && okI;
@@ -42,7 +44,7 @@ function pintarLista(el, filtro, interesFiltro) {
     <div class="view-head">
       <div>
         <h1 class="view-title">Clientes</h1>
-        <p class="view-sub">${clientes.length} en total · ${sel.sinSeguimiento().length} sin seguimiento</p>
+        <p class="view-sub">${prospectos.length} en total</p>
       </div>
       <button class="btn btn-primary" id="btnNuevoCliente">${icon('plus')} Nuevo cliente</button>
     </div>
@@ -63,8 +65,6 @@ function pintarLista(el, filtro, interesFiltro) {
     ${lista.length ? `
     <div class="card" style="padding:0">
       ${lista.map(c => {
-        const dias = sel.diasSinContacto(c);
-        const alerta = dias >= 7;
         const subLabel = resumenBusca(c);
         const interesLabel = INTERES_LABELS[c.interes];
         return `
@@ -76,7 +76,6 @@ function pintarLista(el, filtro, interesFiltro) {
             </div>
             <div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0">
               ${interesLabel ? `<span class="badge ${INTERES_BADGE[c.interes]}">${interesLabel}</span>` : ''}
-              ${alerta ? `<span class="badge badge-warning" title="Sin contacto hace ${dias} días">${dias}d</span>` : `<span class="text-xs text-soft">${dias === 0 ? 'hoy' : dias + 'd'}</span>`}
               ${c.telefono ? `<a class="btn btn-xs btn-ghost" href="https://wa.me/${limpiarTel(c.telefono)}" target="_blank" onclick="event.stopPropagation()" title="WhatsApp">${icon('whatsapp')}</a>` : ''}
               <button class="btn btn-xs btn-ghost btn-seg" data-id="${c.id}" title="Registrar contacto" onclick="event.stopPropagation()">${icon('check')}</button>
             </div>
@@ -143,7 +142,6 @@ function pintarDetalle(el, id) {
   const c = clientes.find(x => x.id === id);
   if (!c) { el.innerHTML = `<div class="view"><div class="empty"><h3>Cliente no encontrado</h3><button class="btn btn-ghost" onclick="history.back()">Volver</button></div></div>`; return; }
 
-  const dias = sel.diasSinContacto(c);
   const alqsRel = alquileres.filter(a => a.inquilinoId === id || a.propietarioId === id);
   const vtasRel = ventas.filter(v => v.compradorId === id || v.vendedorId === id);
   const segs = (c.seguimientos || []).slice().reverse();
@@ -174,11 +172,6 @@ function pintarDetalle(el, id) {
           ${fila('Email', c.email)}
           ${fila('DNI', c.dni)}
           ${c.origen ? fila('Origen', c.origen) : ''}
-          <div style="margin-top:1rem">
-            <div class="text-xs text-soft" style="margin-bottom:.4rem">Último contacto</div>
-            <span class="badge ${dias >= 7 ? 'badge-warning' : 'badge-success'}">${dias === 0 ? 'Hoy' : `Hace ${dias} días`}</span>
-            ${c.proximoContacto ? `<span style="margin-left:.5rem" class="text-xs text-soft">Próximo: ${fmtFechaCorta(c.proximoContacto)}</span>` : ''}
-          </div>
           ${c.notas ? `<div style="margin-top:1rem;padding:1rem;background:var(--bg-soft);border-radius:var(--radius-sm);font-size:.875rem">${esc(c.notas)}</div>` : ''}
         </div>
       </div>
