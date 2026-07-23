@@ -336,6 +336,83 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
 }
 
 /* ============================================================
+   RECIBO GENERAL (cualquier persona, cualquier concepto)
+   Para casos que no están atados a un contrato de alquiler: señas,
+   comisiones, pagos a cuenta, etc. La persona puede ser una ya
+   cargada en el sistema (cliente/propietario) o alguien nuevo.
+   { persona: { nombre, dni, telefono, domicilio }, concepto, monto,
+     moneda, fecha, formaPago, referencia, nota }
+   ============================================================ */
+export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 'ARS', fecha, formaPago = 'Efectivo', referencia = '', nota = '' }) {
+  const ag  = getAgencia();
+  const num = fmtDocNum(nextNum(KEY_NUM_REC));
+  const fechaDoc = fecha || new Date().toISOString().slice(0, 10);
+  const unidad = moneda === 'USD' ? 'dólares' : 'pesos';
+
+  const copia = (tipoCop) => `
+  <div class="copia">
+    ${headerDoc(ag, 'RECIBO', num, fechaDoc)}
+
+    <div class="banda-concepto">
+      ${esc((concepto || 'RECIBO DE PAGO').toUpperCase())}
+    </div>
+
+    <!-- Datos de la persona -->
+    <div class="cliente-blk">
+      <div class="dato-fld"><span class="lbl">Sr./Sra.:</span> <strong>${esc(persona.nombre || '—')}</strong></div>
+      ${persona.dni ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(persona.dni)}</strong></div>` : '<div></div>'}
+      ${persona.domicilio ? `<div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Domicilio:</span> ${esc(persona.domicilio)}</div>` : ''}
+      ${persona.telefono ? `<div class="dato-fld"><span class="lbl">Teléfono:</span> ${esc(persona.telefono)}</div>` : ''}
+      <div class="dato-fld"><span class="lbl">Condición IVA:</span> Consumidor Final</div>
+    </div>
+
+    <!-- Tabla importe -->
+    <table class="tabla">
+      <thead><tr>
+        <th>Concepto</th>
+        <th class="right">Importe</th>
+      </tr></thead>
+      <tbody>
+      <tr>
+        <td>${esc(concepto || '—')}</td>
+        <td class="right">${fmtMoneda(monto, moneda)}</td>
+      </tr>
+      </tbody>
+    </table>
+
+    <div class="totales">
+      <div class="total-row grand">
+        <div class="total-label">TOTAL RECIBIDO:</div>
+        <div class="total-val">${fmtMoneda(monto, moneda)}</div>
+      </div>
+    </div>
+
+    <!-- Letras y forma de pago -->
+    <div class="letras-blk">
+      <div>
+        <div><span class="lbl">Son ${unidad}:</span> <strong>${enLetras(monto, unidad)}</strong></div>
+        ${nota ? `<div style="margin-top:2px"><span class="lbl">Observaciones:</span> ${esc(nota)}</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0;padding-left:12px">
+        <div><span class="lbl">Forma de pago:</span> <strong>${esc(formaPago)}</strong></div>
+        ${referencia ? `<div style="margin-top:2px"><span class="lbl">Ref.:</span> ${esc(referencia)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="firma-blk">
+      <div class="firma-linea">Firma y aclaración</div>
+      <div class="copia-label">— ${tipoCop} —</div>
+    </div>
+  </div>`;
+
+  abrirVentana('Recibo', `
+    ${copia('ORIGINAL')}
+    <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
+    ${copia('DUPLICADO')}
+  `);
+}
+
+/* ============================================================
    LIQUIDACIÓN (inmobiliaria → propietario)
    Recibe datos ya calculados desde el modal previo.
    {

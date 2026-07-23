@@ -15,8 +15,9 @@ export default function clientes(root, param) {
   root.innerHTML = `<div class="view" id="vClientes"></div>`;
   let filtro = '';
   let interesFiltro = '';
+  let tab = 'buscando';
 
-  const render = () => pintarLista(root.querySelector('#vClientes'), filtro, interesFiltro);
+  const render = () => pintarLista(root.querySelector('#vClientes'), filtro, interesFiltro, tab);
   render();
   const unsub = subscribe(render);
 
@@ -26,15 +27,22 @@ export default function clientes(root, param) {
   root.querySelector('#vClientes').addEventListener('change', (e) => {
     if (e.target.id === 'filtroInteres') { interesFiltro = e.target.value; render(); }
   });
+  root.querySelector('#vClientes').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-tab]');
+    if (t) { tab = t.dataset.tab; render(); }
+  });
 
   return unsub;
 }
 
-function pintarLista(el, filtro, interesFiltro) {
+function pintarLista(el, filtro, interesFiltro, tab) {
   const { clientes } = getState();
-  // Un inquilino que ya firmó contrato deja de ser un prospecto: no se lista más acá.
-  const prospectos = clientes.filter(c => !sel.tieneAlquilerVigente(c.id));
-  let lista = prospectos.filter(c => {
+  // "Buscando" = todavía no firmó contrato; "Ya alquilaron" = tiene un alquiler vigente.
+  const buscando   = clientes.filter(c => !sel.tieneAlquilerVigente(c.id));
+  const alquilaron = clientes.filter(c => sel.tieneAlquilerVigente(c.id));
+  const base = tab === 'alquilaron' ? alquilaron : tab === 'todos' ? clientes : buscando;
+
+  let lista = base.filter(c => {
     const ok = !filtro || `${c.nombre} ${c.telefono||''} ${c.email||''} ${c.dni||''}`.toLowerCase().includes(filtro);
     const okI = !interesFiltro || c.interes === interesFiltro;
     return ok && okI;
@@ -44,9 +52,15 @@ function pintarLista(el, filtro, interesFiltro) {
     <div class="view-head">
       <div>
         <h1 class="view-title">Clientes</h1>
-        <p class="view-sub">${prospectos.length} en total</p>
+        <p class="view-sub">${buscando.length} buscando · ${alquilaron.length} ya alquilaron</p>
       </div>
       <button class="btn btn-primary" id="btnNuevoCliente">${icon('plus')} Nuevo cliente</button>
+    </div>
+
+    <div class="tabs" style="margin-bottom:1rem">
+      <button class="tab ${tab==='buscando'?'active':''}" data-tab="buscando">Buscando (${buscando.length})</button>
+      <button class="tab ${tab==='alquilaron'?'active':''}" data-tab="alquilaron">Ya alquilaron (${alquilaron.length})</button>
+      <button class="tab ${tab==='todos'?'active':''}" data-tab="todos">Todos (${clientes.length})</button>
     </div>
 
     <div class="toolbar">
@@ -67,6 +81,7 @@ function pintarLista(el, filtro, interesFiltro) {
       ${lista.map(c => {
         const subLabel = resumenBusca(c);
         const interesLabel = INTERES_LABELS[c.interes];
+        const yaAlquilo = sel.tieneAlquilerVigente(c.id);
         return `
           <div class="list-row list-row-hover" data-id="${c.id}" style="cursor:pointer">
             <div class="avatar" style="flex-shrink:0">${iniciales(c.nombre)}</div>
@@ -75,7 +90,7 @@ function pintarLista(el, filtro, interesFiltro) {
               <div class="text-xs text-soft truncate">${subLabel || 'Sin datos de búsqueda'}</div>
             </div>
             <div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0">
-              ${interesLabel ? `<span class="badge ${INTERES_BADGE[c.interes]}">${interesLabel}</span>` : ''}
+              ${yaAlquilo ? `<span class="badge badge-success">Ya alquiló</span>` : interesLabel ? `<span class="badge ${INTERES_BADGE[c.interes]}">${interesLabel}</span>` : ''}
               ${c.telefono ? `<a class="btn btn-xs btn-ghost" href="https://wa.me/${limpiarTel(c.telefono)}" target="_blank" onclick="event.stopPropagation()" title="WhatsApp">${icon('whatsapp')}</a>` : ''}
               <button class="btn btn-xs btn-ghost btn-seg" data-id="${c.id}" title="Registrar contacto" onclick="event.stopPropagation()">${icon('check')}</button>
             </div>
@@ -84,7 +99,7 @@ function pintarLista(el, filtro, interesFiltro) {
     </div>` : `
     <div class="empty">
       ${icon('users')}
-      <h3>No hay clientes${filtro ? ' con ese criterio' : ''}</h3>
+      <h3>No hay clientes${filtro ? ' con ese criterio' : tab === 'alquilaron' ? ' que ya hayan alquilado' : tab === 'buscando' ? ' buscando todavía' : ''}</h3>
       <p>${filtro ? 'Probá con otro término.' : 'Empezá cargando tu primer cliente.'}</p>
       ${!filtro ? `<button class="btn btn-primary" id="btnNuevoCliente2">${icon('plus')} Nuevo cliente</button>` : ''}
     </div>`}`;

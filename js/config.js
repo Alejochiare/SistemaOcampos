@@ -90,6 +90,7 @@ export const NAV = [
   { section: 'Finanzas' },
   { id: 'liquidaciones', label: 'Liquidaciones',    icon: 'file' },
   { id: 'caja',          label: 'Control de caja',  icon: 'wallet' },
+  { id: 'recibos',       label: 'Generador de recibo', icon: 'file' },
   { section: 'Agenda' },
   { id: 'agenda',       label: 'Agenda',           icon: 'calendar', badgeKey: 'eventosHoy' },
 ];

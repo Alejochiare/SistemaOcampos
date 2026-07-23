@@ -11,8 +11,9 @@ import agenda       from './views/agenda.js';
 import caja         from './views/caja.js';
 import temporales     from './views/temporales.js';
 import liquidaciones  from './views/liquidaciones.js';
+import recibos         from './views/recibos.js';
 
-const RUTAS = { inicio, clientes, propietarios, propiedades, alquileres, ventas, agenda, caja, temporales, liquidaciones };
+const RUTAS = { inicio, clientes, propietarios, propiedades, alquileres, ventas, agenda, caja, temporales, liquidaciones, recibos };
 
 let _cleanup = null;
 
