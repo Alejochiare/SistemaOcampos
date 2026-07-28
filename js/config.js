@@ -88,10 +88,24 @@ export const PLAZOS_COMERCIALIZACION = [
 ];
 
 export const TIPOS_DOCUMENTO_VENTA = [
-  'Escritura', 'Plano', 'Matrícula', 'Copia de escritura', 'DNI propietario',
-  'Informe de Catastro', 'Cédula de Rentas', 'Número de cuenta municipal',
-  'Impuesto provincial', 'Impuesto municipal', 'Informe de inhibición', 'Otros',
+  'Escritura', 'Plano', 'Matrícula', 'DNI propietario',
+  'Informe de Catastro', 'Impuesto provincial', 'Impuesto municipal',
+  'Informe de inhibición', 'Otros',
 ];
+
+/* Peso de cada documento dentro de los 20 puntos de "Documentación completa" del
+   índice de vendibilidad — los más determinantes para poder escriturar pesan más.
+   Suman 20 entre todos ("Otros" no aporta puntos, es un documento sin definir). */
+export const PESOS_DOCUMENTO_VENTA = {
+  'Escritura':               4,
+  'Informe de inhibición':   3.5,
+  'Matrícula':                3,
+  'Plano':                   2.5,
+  'Informe de Catastro':     2.5,
+  'DNI propietario':         1.5,
+  'Impuesto provincial':     1.5,
+  'Impuesto municipal':      1.5,
+};
 
 export const ESTADOS_DOCUMENTO = [
   { id: 'completo',  label: 'Completo',  simbolo: '✅', badge: 'badge-success' },

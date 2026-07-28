@@ -3,7 +3,7 @@
    ============================================================ */
 import { api } from './data.js';
 import { diasEntre, parseFechaLocal } from './lib.js';
-import { ALERTA_VENCIMIENTO_DIAS, CANALES_COMERCIALIZACION } from './config.js';
+import { ALERTA_VENCIMIENTO_DIAS, CANALES_COMERCIALIZACION, PESOS_DOCUMENTO_VENTA } from './config.js';
 
 const state = {
   clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [],
@@ -307,12 +307,17 @@ export const sel = {
     const factores = [];
     let score = 0;
 
-    // 1) Estado documental — 20 pts
-    const totalDocs = docs.length;
-    const completos = docs.filter(d => d.estado === 'completo').length;
-    const ptsDocs = totalDocs ? Math.round((completos / totalDocs) * 20) : 0;
+    // 1) Estado documental — 20 pts, repartidos por documento según su peso
+    // (Escritura e Informe de inhibición valen más que, por ejemplo, DNI propietario).
+    const pesosDocs = Object.entries(PESOS_DOCUMENTO_VENTA);
+    let ptsDocs = 0, completosClave = 0;
+    pesosDocs.forEach(([tipo, peso]) => {
+      const d = docs.find(x => (x.tipo || '').toLowerCase() === tipo.toLowerCase());
+      if (d?.estado === 'completo') { ptsDocs += peso; completosClave++; }
+    });
+    ptsDocs = Math.round(ptsDocs * 10) / 10;
     score += ptsDocs;
-    factores.push({ label: 'Documentación completa', puntos: ptsDocs, max: 20, detalle: totalDocs ? `${completos}/${totalDocs} documentos completos` : 'Sin documentos cargados' });
+    factores.push({ label: 'Documentación completa', puntos: ptsDocs, max: 20, detalle: docs.length ? `${completosClave}/${pesosDocs.length} documentos clave completos` : 'Sin documentos cargados' });
 
     // 2) Presencia en canales de comercialización — 20 pts
     const canalesUsados = new Set(mkt.map(m => m.accion));
@@ -363,7 +368,7 @@ export const sel = {
     score += ptsConserv;
     factores.push({ label: 'Estado de conservación', puntos: ptsConserv, max: 5, detalle: p.estadoConservacion || 'No especificado' });
 
-    score = Math.max(0, Math.min(100, score));
+    score = Math.max(0, Math.min(100, Math.round(score)));
     const color = score >= 70 ? 'green' : score >= 40 ? 'yellow' : 'red';
     return { score, color, factores };
   },

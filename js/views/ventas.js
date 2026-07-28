@@ -310,8 +310,13 @@ function pintarPropiedadVentaDetalle(el, id) {
   const recomendaciones = sel.recomendacionesVenta(p);
   const alertas = sel.alertasVenta(p);
   const interesadosVinc = sel.interesadosDePropiedad(p.id);
-  const { interesados, propietarios } = getState();
+  const { interesados, propietarios, clientes } = getState();
   const interesadosDisponibles = interesados.filter(i => !(i.propiedadesIds || []).includes(p.id));
+  // Clientes que ya son inquilinos/compradores cargados y todavía no figuran como interesados en esta propiedad
+  // (si el cliente ya tiene un interesado vinculado en otra propiedad, se reutiliza ese registro en vez de duplicarlo).
+  const clientesVinculablesComoInteresado = [...clientes]
+    .filter(c => !interesadosVinc.some(i => i.clienteId === c.id))
+    .sort((a, b) => (a.nombre||'').localeCompare(b.nombre||'', 'es'));
   const propietario = propietarios.find(x => x.id === p.propietarioId);
 
   el.innerHTML = `
@@ -465,18 +470,26 @@ function pintarPropiedadVentaDetalle(el, id) {
           ${interesadosVinc.length ? interesadosVinc.map(i => `
             <div class="list-row list-row-hover" data-ver-int-det="${i.id}" style="cursor:pointer">
               <div class="list-info" style="flex:1">
-                <div class="list-name" style="font-size:.875rem">${esc(i.nombre)}</div>
+                <div class="list-name" style="font-size:.875rem">${esc(i.nombre)}${i.clienteId ? ' <span class="badge badge-info" style="font-size:.62rem">Cliente</span>' : ''}</div>
                 <div class="text-xs text-soft">${[i.telefono, i.presupuesto ? fmtMoneda(i.presupuesto, i.moneda) : null].filter(Boolean).join(' · ') || '—'}</div>
               </div>
               <button class="btn btn-xs btn-ghost" data-desvincular-int="${i.id}" title="Desvincular" style="color:var(--danger)">${icon('x')}</button>
             </div>`).join('') : `<div class="empty-sm">Sin interesados vinculados todavía</div>`}
         </div>
-        <div class="card-body" style="display:flex;gap:.5rem;padding-top:0">
-          <select id="selVincularInt" style="flex:1">
-            <option value="">— Vincular interesado existente —</option>
-            ${interesadosDisponibles.map(i => `<option value="${i.id}">${esc(i.nombre)}</option>`).join('')}
+        <div class="card-body" style="display:flex;gap:.5rem;padding-top:0;flex-wrap:wrap">
+          <select id="selVincularInt" style="flex:1;min-width:200px">
+            <option value="">— Vincular interesado o cliente —</option>
+            ${interesadosDisponibles.length ? `<optgroup label="Interesados (leads)">
+              ${interesadosDisponibles.map(i => `<option value="int:${i.id}">${esc(i.nombre)}</option>`).join('')}
+            </optgroup>` : ''}
+            ${clientesVinculablesComoInteresado.length ? `<optgroup label="Clientes ya cargados (Inquilinos)">
+              ${clientesVinculablesComoInteresado.map(c => `<option value="cli:${c.id}">${esc(c.nombre)}</option>`).join('')}
+            </optgroup>` : ''}
           </select>
           <button class="btn btn-sm btn-ghost" id="btnVincularInt">Vincular</button>
+        </div>
+        <div class="card-body" style="padding-top:0">
+          <small class="text-soft">¿No está en la lista? Un cliente nuevo se carga primero como interesado desde la pestaña "Interesados" de Ventas.</small>
         </div>
       </div>
 
@@ -566,12 +579,28 @@ function pintarPropiedadVentaDetalle(el, id) {
   });
   el.querySelector('#btnVincularInt')?.addEventListener('click', async () => {
     const sel2 = el.querySelector('#selVincularInt');
-    const intId = sel2.value;
-    if (!intId) { toast('Elegí un interesado para vincular', { tipo: 'warning' }); return; }
-    const i = getState().interesados.find(x => x.id === intId);
-    if (!i) return;
-    await actions.updateInteresado(intId, { propiedadesIds: [...(i.propiedadesIds || []), id] });
-    toast('Interesado vinculado');
+    const val = sel2.value;
+    if (!val) { toast('Elegí un interesado o cliente para vincular', { tipo: 'warning' }); return; }
+    const [tipo, valId] = val.split(':');
+    if (tipo === 'int') {
+      const i = getState().interesados.find(x => x.id === valId);
+      if (!i) return;
+      await actions.updateInteresado(valId, { propiedadesIds: [...(i.propiedadesIds || []), id] });
+    } else if (tipo === 'cli') {
+      const c = getState().clientes.find(x => x.id === valId);
+      if (!c) return;
+      // Reutiliza un interesado ya creado para este cliente (aunque sea de otra propiedad) en vez de duplicarlo.
+      const yaExiste = getState().interesados.find(x => x.clienteId === c.id);
+      if (yaExiste) {
+        await actions.updateInteresado(yaExiste.id, { propiedadesIds: [...(yaExiste.propiedadesIds || []), id] });
+      } else {
+        await actions.createInteresado({
+          nombre: c.nombre, telefono: c.telefono || '', email: c.email || '',
+          clienteId: c.id, propiedadesIds: [id],
+        });
+      }
+    }
+    toast('Vinculado como interesado');
   });
 
   // Informes
