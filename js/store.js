@@ -57,6 +57,7 @@ export const actions = {
   async cancelarAlquiler(id)        { const r = await api.cancelarAlquiler(id); await refresh(); return r; },
   async addCobro(alqId, cobro)      { const r = await api.addCobro(alqId, cobro); await refresh(); return r; },
   async updateCobro(alqId, cobId, p){ await api.updateCobro(alqId, cobId, p); await refresh(); },
+  async deshacerCobro(alqId, cobId){ await api.deshacerCobro(alqId, cobId); await refresh(); },
   async registrarAumento(alqId, nuevoMonto, nota) { await api.registrarAumento(alqId, nuevoMonto, nota); await refresh(); },
   async editarUltimoAjuste(alqId, patch) { await api.editarUltimoAjuste(alqId, patch); await refresh(); },
   async deshacerUltimoAjuste(alqId) { await api.deshacerUltimoAjuste(alqId); await refresh(); },

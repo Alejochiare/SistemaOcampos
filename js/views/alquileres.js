@@ -187,12 +187,16 @@ async function alqDetalle(root, id) {
 }
 
 function pintarDetalle(el, id) {
-  const { alquileres, clientes, propiedades } = getState();
+  const { alquileres, clientes, propiedades, propietarios } = getState();
   const a = alquileres.find(x => x.id === id);
   if (!a) { el.innerHTML = `<div class="view"><div class="empty"><h3>Contrato no encontrado</h3></div></div>`; return; }
 
   const inq      = clientes.find(c => c.id === a.inquilinoId);
   const prop     = propiedades.find(p => p.id === a.propiedadId);
+  const dueños   = sel.propietariosDePropiedad(prop);
+  const nombrePropietario = dueños.length
+    ? dueños.map(o => propietarios.find(p => p.id === o.propietarioId)?.nombre || '—').join(' + ')
+    : (propietarios.find(p => p.id === a.propietarioId)?.nombre || null);
   const estado   = sel.estadoAlquiler(a);
   const estadoObj = CONTRATO_ESTADOS.find(e => e.id === estado);
   const dias     = sel.diasAlVencimiento(a);
@@ -206,7 +210,7 @@ function pintarDetalle(el, id) {
 
   const totalCobrado = (a.cobros || []).filter(c => c.pagado).reduce((s, c) => s + (Number(c.monto)||0), 0);
   const nPagados     = (a.cobros || []).filter(c => c.pagado).length;
-  const nDebe        = meses.filter(m => m.tipo === 'debe' || m.tipo === 'sin_cobro').length;
+  const nDebe        = meses.filter(m => m.tipo === 'sin_cobro').length;
 
   // ── Render ────────────────────────────────────────────────
   el.innerHTML = `
@@ -234,6 +238,7 @@ function pintarDetalle(el, id) {
       </div>
       <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:.4rem .75rem">
         ${filaInline('Propiedad', prop?.direccion)}
+        ${filaInline('Propietario', nombrePropietario)}
         ${filaInline('Inicio', fmtFechaCorta(a.fechaInicio))}
         ${filaInline('Vencimiento', fmtFechaCorta(a.fechaFin))}
         ${filaInline('Fecha firma', a.fechaFirma ? fmtFechaCorta(a.fechaFirma) : null)}
@@ -469,30 +474,33 @@ function pintarDetalle(el, id) {
     });
   });
 
-  /* marcar cobro existente como pagado */
-  el.querySelectorAll('[data-cob-pagar]').forEach(btn => {
+  /* deshacer un cobro (pagado por error, o registrado como deuda por error) — en ambos
+     casos el mes vuelve a quedar "sin registrar", como si nunca se hubiera cargado */
+  el.querySelectorAll('[data-cob-deshacer]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const cobroId = btn.dataset.cobPagar;
+      const cobroId = btn.dataset.cobDeshacer;
       const cobro = (a.cobros || []).find(c => c.id === cobroId);
-      const esPrimeraCuota = cobro && cobro.mes === (a.fechaInicio || '').slice(0, 7);
-      const necesitaComision = esPrimeraCuota && a.comisionInicial && !a.comisionInicialCobrada && cobro.comisionInicialMonto == null;
-      if (necesitaComision) {
-        // Abrir el modal para poder cargar el monto de la comisión antes de confirmar el cobro
-        openCobroForm(a, () => {}, { mes: cobro.mes, montoAlquiler: cobro.montoAlquiler ?? cobro.monto, cobroId: cobro.id });
-        return;
-      }
-      await actions.updateCobro(id, cobroId, {
-        pagado: true, fechaPago: new Date().toISOString().slice(0,10)
-      });
+      const msg = cobro?.pagado
+        ? '¿Deshacer este cobro? Volverá a quedar sin registrar y se eliminará el movimiento de caja asociado.'
+        : '¿Quitar este registro? El mes volverá a figurar como no registrado.';
+      if (!confirm(msg)) return;
+      await actions.deshacerCobro(id, cobroId);
+      toast('Registro eliminado');
     });
   });
 
-  /* registrar cobro de un mes sin cobro */
+  /* registrar (o completar/confirmar, si ya había un registro parcial sin pagar) el cobro de un mes */
   el.querySelectorAll('[data-mes-nuevo]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openCobroForm(a, () => {}, { mes: btn.dataset.mesNuevo, monto: montoActual });
+      const cobroId = btn.dataset.cobroId || null;
+      const cobroExistente = cobroId ? (a.cobros || []).find(c => c.id === cobroId) : null;
+      openCobroForm(a, () => {}, {
+        mes: btn.dataset.mesNuevo,
+        monto: cobroExistente?.montoAlquiler ?? cobroExistente?.monto ?? montoActual,
+        cobroId: cobroExistente?.id || null,
+      });
     });
   });
 
@@ -873,11 +881,16 @@ function generarMeses(a) {
     const esFuturo = key > hoyKey;
     const cobro = cobrosPorMes[key];
 
+    // Un mes no pagado se ve siempre igual (mismo color/acción), exista o no ya un
+    // registro parcial de cobro atrás — evita que un contrato se vea distinto de otro
+    // solo porque a uno se le había pre-cargado el mes y al otro no.
     let tipo;
-    if (cobro) {
-      tipo = cobro.pagado ? 'pagado' : 'debe';
+    if (cobro?.pagado) {
+      tipo = 'pagado';
+    } else if (esFuturo) {
+      tipo = 'futuro';
     } else {
-      tipo = esFuturo ? 'futuro' : 'sin_cobro';
+      tipo = 'sin_cobro';
     }
 
     meses.unshift({ key, cobro, tipo }); // más reciente primero
@@ -893,7 +906,6 @@ function renderMesCobro(m, a) {
 
   const configs = {
     pagado:    { bg: 'color-mix(in srgb,var(--success) 8%,transparent)',  border: 'color-mix(in srgb,var(--success) 25%,transparent)', dot: 'var(--success)',      icon: '✓' },
-    debe:      { bg: 'color-mix(in srgb,var(--danger) 10%,transparent)',   border: 'var(--danger)',                                      dot: 'var(--danger)',       icon: '!' },
     sin_cobro: { bg: 'color-mix(in srgb,var(--warning) 10%,transparent)',  border: 'color-mix(in srgb,var(--warning) 50%,transparent)', dot: 'var(--warning)',      icon: '?' },
     futuro:    { bg: 'var(--surface-2)',                                    border: 'var(--border)',                                      dot: 'var(--text-faint)',   icon: '·' },
   };
@@ -916,7 +928,6 @@ function renderMesCobro(m, a) {
       <div style="font-weight:600;font-size:.9rem">${label}</div>
       <div style="font-size:.76rem;color:var(--text-soft)">
         ${tipo === 'pagado'    ? `Cobrado el ${fmtFechaCorta(cobro.fechaPago)}` : ''}
-        ${tipo === 'debe'      ? 'Registrado · pendiente de cobro' : ''}
         ${tipo === 'sin_cobro' ? 'Sin registrar' : ''}
         ${tipo === 'futuro'    ? 'Mes futuro' : ''}
       </div>
@@ -932,12 +943,14 @@ function renderMesCobro(m, a) {
       ? `<div style="display:flex;gap:.4rem;flex-shrink:0;align-items:center">
            <button class="btn btn-xs btn-ghost" data-print-rec="${key}" title="Imprimir recibo">${icon('file')} Recibo</button>
            <button class="btn btn-xs btn-ghost" data-print-liq="${key}" title="Imprimir liquidación">${icon('download')} Liquid.</button>
+           <button class="btn btn-xs btn-ghost" data-cob-deshacer="${cobro.id}" title="Deshacer cobro (por error)" style="color:var(--danger)">${icon('refresh')} Deshacer</button>
          </div>`
-      : tipo === 'debe'
-        ? `<button class="btn btn-sm btn-primary" data-cob-pagar="${cobro.id}" style="flex-shrink:0">${icon('check')} Cobrar</button>`
-        : tipo === 'sin_cobro'
-          ? `<button class="btn btn-sm" data-mes-nuevo="${key}" style="flex-shrink:0;background:var(--warning);color:#fff;border:none">Registrar</button>`
-          : `<span class="badge badge-neutral" style="flex-shrink:0">Pendiente</span>`}
+      : tipo === 'sin_cobro'
+        ? `<div style="display:flex;gap:.4rem;flex-shrink:0;align-items:center">
+             <button class="btn btn-sm" data-mes-nuevo="${key}" data-cobro-id="${cobro?.id || ''}" style="background:var(--warning);color:#fff;border:none">Registrar</button>
+             ${cobro ? `<button class="btn btn-xs btn-ghost" data-cob-deshacer="${cobro.id}" title="Quitar este registro" style="color:var(--danger)">${icon('trash')}</button>` : ''}
+           </div>`
+        : `<span class="badge badge-neutral" style="flex-shrink:0">Pendiente</span>`}
   </div>`;
 }
 

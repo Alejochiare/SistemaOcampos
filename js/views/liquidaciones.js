@@ -546,9 +546,32 @@ function renderHistorial(historial, histFiltro) {
     </div>`;
 }
 
+/* Reconstruye, a partir de los cobros liquidados guardados en la liquidación, el detalle
+   propiedad + período + importe de cada uno — para que al reimprimir desde el historial
+   la factura siga identificando exactamente qué se pagó, sin depender de que el contrato
+   o el cobro original sigan intactos. */
+function detalleDeLiquidacion(l, state) {
+  const { alquileres, propiedades } = state;
+  const ids = (l.liquidadosCobros && l.liquidadosCobros.length) ? l.liquidadosCobros : (l.cobroId ? [l.cobroId] : []);
+  if (!ids.length) return null;
+  const detalle = [];
+  ids.forEach(cid => {
+    for (const a of alquileres) {
+      const c = (a.cobros || []).find(x => x.id === cid);
+      if (c) {
+        const prop = propiedades.find(p => p.id === a.propiedadId);
+        detalle.push({ propiedad: prop?.direccion || '—', periodo: mesLabel(c.mes), monto: Number(c.monto) || 0 });
+        break;
+      }
+    }
+  });
+  return detalle.length ? detalle : null;
+}
+
 /* ── Generar PDF ── */
 function generarPDF(id) {
-  const { liquidaciones: list, alquileres, clientes, propietarios, propiedades } = getState();
+  const state = getState();
+  const { liquidaciones: list, alquileres, clientes, propietarios, propiedades } = state;
   const l    = (list || []).find(x => x.id === id);
   if (!l) return;
   const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
@@ -558,6 +581,7 @@ function generarPDF(id) {
   const periodoLabel = !l.mes && l.meses && l.meses.length > 1
     ? `${mesLabel(l.meses[0])} – ${mesLabel(l.meses[l.meses.length - 1])}`
     : null;
+  const detalle = detalleDeLiquidacion(l, state);
 
   if (Array.isArray(l.propietarios) && l.propietarios.length) {
     const propietariosImpresion = l.propietarios.map(po => ({
@@ -571,14 +595,14 @@ function generarPDF(id) {
       pagos: po.pagos || [],
     }));
     imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: null,
-      propietarios: propietariosImpresion, descuentos: l.descuentos || [], periodoLabel });
+      propietarios: propietariosImpresion, descuentos: l.descuentos || [], periodoLabel, detalle });
     return;
   }
 
   const own = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
   imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
     pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo',
-    pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto, periodoLabel });
+    pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto, periodoLabel, detalle });
 }
 
 /* ── Formulario liquidar GRUPAL (múltiples propiedades de un propietario) ── */
@@ -826,6 +850,12 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
             descuentos: liq.descuentos || [],
             formaPago: liq.formaPago || 'Efectivo',
             pagos: liq.pagos || [],
+            periodoLabel: mesesLabelStr,
+            detalle: detalleProps.map(d => ({
+              propiedad: d.prop?.direccion || '—',
+              periodo: d.periodos.map(p => mesLabel(p.mes)).join(', '),
+              monto: d.total,
+            })),
           });
         }
 
@@ -932,6 +962,11 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
       const descuentosTotal = () => [...q('#descBlk').querySelectorAll('[data-desc-monto]')]
         .reduce((s, el) => s + valorMonto(el.value), 0);
 
+      // La comisión pactada por cada propietario es un % del alquiler TOTAL cobrado,
+      // no de su propia ganancia/porcentaje de la propiedad — por eso se aplica sobre
+      // totalMonto y no sobre montoOwner. Así, si solo un dueño paga la comisión, a él
+      // se le descuenta la comisión completa (calculada sobre el total), no una versión
+      // reducida calculada sobre su porción.
       const montoOwnerActual = (i) => {
         const row = ctx.overlay.querySelectorAll('[data-reparto-idx]')[i];
         if (!row) return 0;
@@ -941,7 +976,7 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
         const desc   = descuentosTotal();
         const montoOwner = Math.round(totalMonto * pct / 100);
         const descOwner  = Math.round(desc * pct / 100);
-        const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+        const honOwner   = paga ? Math.round(totalMonto * pctCom / 100) : 0;
         return montoOwner - honOwner - descOwner;
       };
 
@@ -954,7 +989,7 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
           const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
           const montoOwner = Math.round(totalMonto * pct / 100);
           const descOwner  = Math.round(desc * pct / 100);
-          const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+          const honOwner   = paga ? Math.round(totalMonto * pctCom / 100) : 0;
           const totalOwner = montoOwner - honOwner - descOwner;
           row.querySelector('.reparto-monto').textContent = fmt$(totalOwner);
           totalHon += honOwner;
@@ -1055,7 +1090,7 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
           if (!pagos.length) { toast(`Indicá la forma de pago de ${esc(nombreOwner)}`, { tipo: 'warning' }); return; }
           const montoOwner = Math.round(totalMonto * fila.porcentaje / 100);
           const descOwner  = Math.round(descTotal * fila.porcentaje / 100);
-          const honOwner   = fila.pagaComision ? Math.round(montoOwner * fila.comisionPct / 100) : 0;
+          const honOwner   = fila.pagaComision ? Math.round(totalMonto * fila.comisionPct / 100) : 0;
           const totalOwner = montoOwner - honOwner - descOwner;
           const sumaPagos  = pagos.reduce((s, p) => s + p.monto, 0);
           if (Math.round(sumaPagos * 100) !== Math.round(totalOwner * 100)) {
@@ -1127,6 +1162,11 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
             })),
             descuentos: liq.descuentos || [],
             periodoLabel: mesesLabelStr,
+            detalle: grupo.cobros.map(c => ({
+              propiedad: prop?.direccion || '—',
+              periodo: mesLabel(c.cobro.mes),
+              monto: c.monto,
+            })),
           });
         }
 
@@ -1244,6 +1284,9 @@ export function abrirFormLiquidacion(pre, onDone) {
       const descuentosTotal = () => [...ctx.overlay.querySelectorAll('[name^="desc_monto"]')]
         .reduce((s, i) => s + valorMonto(i.value), 0);
 
+      // La comisión pactada por cada propietario es un % del alquiler TOTAL cobrado,
+      // no de su propia ganancia/porcentaje de la propiedad — por eso se aplica sobre
+      // `monto` (el total del cobro) y no sobre montoOwner.
       const montoOwnerActual = (i) => {
         const row = ctx.overlay.querySelectorAll('[data-reparto-idx]')[i];
         if (!row) return 0;
@@ -1253,7 +1296,7 @@ export function abrirFormLiquidacion(pre, onDone) {
         const desc   = descuentosTotal();
         const montoOwner = Math.round(monto * pct / 100);
         const descOwner  = Math.round(desc * pct / 100);
-        const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+        const honOwner   = paga ? Math.round(monto * pctCom / 100) : 0;
         return montoOwner - honOwner - descOwner;
       };
 
@@ -1269,7 +1312,7 @@ export function abrirFormLiquidacion(pre, onDone) {
             const pctCom = Number(row.querySelector('.reparto-comision').value) || 0;
             const montoOwner = Math.round(monto * pct / 100);
             const descOwner  = Math.round(desc * pct / 100);
-            const honOwner   = paga ? Math.round(montoOwner * pctCom / 100) : 0;
+            const honOwner   = paga ? Math.round(monto * pctCom / 100) : 0;
             const totalOwner = montoOwner - honOwner - descOwner;
             row.querySelector('.reparto-monto').textContent = fmt$(totalOwner);
             totalHon += honOwner;
@@ -1423,7 +1466,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           if (!pagos.length) { toast(`Indicá la forma de pago de ${esc(nombreOwner)}`, { tipo: 'warning' }); return; }
           const montoOwner = Math.round(monto * fila.porcentaje / 100);
           const descOwner  = Math.round(descTotal * fila.porcentaje / 100);
-          const honOwner   = fila.pagaComision ? Math.round(montoOwner * fila.comisionPct / 100) : 0;
+          const honOwner   = fila.pagaComision ? Math.round(monto * fila.comisionPct / 100) : 0;
           const totalOwner = montoOwner - honOwner - descOwner;
           const sumaPagos  = pagos.reduce((s, p) => s + p.monto, 0);
           if (Math.round(sumaPagos * 100) !== Math.round(totalOwner * 100)) {

@@ -366,6 +366,28 @@ export const api = {
     }
     return delay(c ? structuredClone(c) : null);
   },
+  /** Deshace un cobro marcado como pagado por error: elimina el registro de
+   *  cobro (vuelve a quedar el mes "sin registrar", como si nunca se hubiera
+   *  cargado) y borra los movimientos de caja que se hubieran generado. */
+  async deshacerCobro(alquilerId, cobroId) {
+    const a = _db.alquileres.find(x => x.id === alquilerId);
+    if (!a) return delay(null);
+    const idx = (a.cobros || []).findIndex(x => x.id === cobroId);
+    if (idx === -1) return delay(null);
+    const c = a.cobros[idx];
+    const idsAEliminar = [...(c.cajaMovimientoIds || []), c.comisionInicialCajaMovimientoId].filter(Boolean);
+    if (idsAEliminar.length) {
+      (_db.caja || []).forEach(dia => {
+        dia.movimientos = (dia.movimientos || []).filter(m => !idsAEliminar.includes(m.id));
+      });
+    }
+    if (c.comisionInicialCajaMovimientoId) {
+      a.comisionInicialCobrada = false;
+    }
+    a.cobros.splice(idx, 1);
+    persist(_db);
+    return delay(true);
+  },
   async registrarAumento(alqId, nuevoMonto, nota) {
     const a = _db.alquileres.find(x => x.id === alqId);
     if (!a) return delay(null);

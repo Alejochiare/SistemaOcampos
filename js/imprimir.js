@@ -423,11 +423,14 @@ export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 
    }
    ============================================================ */
 export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario, propietarios = null,
-                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null }) {
+                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null, detalle = null }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
-  const totalAlquiler = cobro.monto || alq.montoActual || alq.montoInicial || 0;
+  const tieneDetalle  = Array.isArray(detalle) && detalle.length > 0;
+  const totalAlquiler = tieneDetalle
+    ? detalle.reduce((s, d) => s + (Number(d.monto) || 0), 0)
+    : (cobro.monto || alq.montoActual || alq.montoInicial || 0);
   const esMultiPropietario = Array.isArray(propietarios) && propietarios.length > 0;
   const honorarios    = esMultiPropietario
     ? propietarios.reduce((s, p) => s + (Number(p.montoHonorarios) || 0), 0)
@@ -437,7 +440,8 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
     ? propietarios.reduce((s, p) => s + (Number(p.totalPagar) || 0), 0)
     : totalAlquiler - honorarios - totalDesc;
   const pago          = cobro.mes ? numPago(alq, cobro.mes) : null;
-  const periodo       = periodoLabel || (cobro.mes ? mesLabel(cobro.mes) : '—');
+  const periodo        = periodoLabel || (cobro.mes ? mesLabel(cobro.mes)
+                          : (tieneDetalle ? `${detalle.length} período${detalle.length > 1 ? 's' : ''}` : '—'));
 
   const copia = (tipoCopia) => `
   <div class="copia">
@@ -488,11 +492,17 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
         <th class="right">Importe</th>
       </tr></thead>
       <tbody>
+        ${tieneDetalle ? detalle.map(d => `
+        <tr>
+          <td>${esc(d.propiedad || propiedad?.direccion || '—')}</td>
+          <td>${esc(d.periodo || '—')}</td>
+          <td class="right">${fmtMoneda(d.monto, d.moneda)}</td>
+        </tr>`).join('') : `
         <tr>
           <td>${esc(propiedad?.tipo || '')} ${esc(propiedad?.direccion || '—')}</td>
           <td>${periodo}${pago ? ` [pago ${pago.actual} / ${pago.total}]` : ''}</td>
           <td class="right"><strong>${fmtMoneda(totalAlquiler)}</strong></td>
-        </tr>
+        </tr>`}
       </tbody>
     </table>
 
