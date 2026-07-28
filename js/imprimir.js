@@ -6,6 +6,7 @@ const KEY_AGENCIA  = 'inmocrm_agencia';
 const KEY_NUM_REC  = 'inmocrm_num_recibo';
 const KEY_NUM_LIQ  = 'inmocrm_num_liquidacion';
 const KEY_NUM_DEUDA = 'inmocrm_num_deuda';
+const KEY_NUM_INFORME_VENTA = 'inmocrm_num_informe_captacion';
 
 /* ── Agencia config ──────────────────────────────────────── */
 export function getAgencia() {
@@ -648,4 +649,85 @@ export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, c
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
   `);
+}
+
+/* ============================================================
+   INFORME DE CAPTACIÓN (VENTAS)
+   Resumen periódico para el propietario: consultas, visitas,
+   ofertas, acciones de marketing e índice de vendibilidad.
+   { captacion, periodoDesde, periodoHasta, stats: {
+       consultas, visitas, ofertas, accionesMkt: [{fecha,accion}],
+       canalesActivos: [...], metaAdsActivas: [...],
+       indice: { score, color }, recomendaciones: [...]
+   } }
+   ============================================================ */
+export function imprimirInformeCaptacion({ captacion: c, periodoDesde, periodoHasta, stats }) {
+  const ag  = getAgencia();
+  const num = fmtDocNum(nextNum(KEY_NUM_INFORME_VENTA));
+  const fecha = new Date().toISOString().slice(0, 10);
+  const colorIndice = stats.indice.color === 'green' ? '#16a34a' : stats.indice.color === 'yellow' ? '#d97706' : '#dc2626';
+
+  const cuerpo = `
+  <div class="copia">
+    ${headerDoc(ag, 'INFORME', num, fecha)}
+
+    <div class="banda-concepto">
+      INFORME DE COMERCIALIZACIÓN — ${esc(c.direccion || 'Propiedad')}
+    </div>
+
+    <div class="cliente-blk">
+      <div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Propiedad:</span> <strong>${esc(c.direccion || '—')}</strong>${(c.ciudad || c.localidad) ? ' — ' + esc(c.ciudad || c.localidad) : ''}</div>
+      <div class="dato-fld"><span class="lbl">Período informado:</span> ${fmtFecha(periodoDesde)} — ${fmtFecha(periodoHasta)}</div>
+      <div class="dato-fld"><span class="lbl">Estado:</span> ${esc(c.estado || '—')}</div>
+    </div>
+
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Actividad del período</div>
+      <div class="contrato-grid">
+        <div class="contrato-row"><span class="lbl">Consultas:</span> <strong>${stats.consultas}</strong></div>
+        <div class="contrato-row"><span class="lbl">Visitas:</span> <strong>${stats.visitas}</strong></div>
+        <div class="contrato-row"><span class="lbl">Ofertas recibidas:</span> <strong>${stats.ofertas}</strong></div>
+        <div class="contrato-row"><span class="lbl">Acciones de marketing:</span> <strong>${stats.accionesMkt.length}</strong></div>
+      </div>
+    </div>
+
+    ${stats.accionesMkt.length ? `
+    <table class="tabla">
+      <thead><tr><th>Fecha</th><th>Acción de comercialización</th></tr></thead>
+      <tbody>
+        ${stats.accionesMkt.map(a => `<tr><td>${fmtFecha(a.fecha)}</td><td>${esc(a.accion)}</td></tr>`).join('')}
+      </tbody>
+    </table>` : ''}
+
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Publicaciones activas</div>
+      <div style="font-size:10px">${stats.canalesActivos.length ? esc(stats.canalesActivos.join(' · ')) : 'Sin publicaciones registradas'}</div>
+    </div>
+
+    ${stats.metaAdsActivas.length ? `
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Publicidad ejecutada (Meta Ads)</div>
+      ${stats.metaAdsActivas.map(m => `<div style="font-size:10px;margin-bottom:3px">Del ${fmtFecha(m.fechaInicio)} al ${fmtFecha(m.fechaFin)}${m.presupuesto ? ' · Presupuesto: ' + fmtMoneda(m.presupuesto) : ''}</div>`).join('')}
+    </div>` : ''}
+
+    <div class="totales" style="margin-top:10px">
+      <div class="total-row grand" style="justify-content:flex-start;gap:12px">
+        <div class="total-label" style="min-width:0;text-align:left">Índice de vendibilidad:</div>
+        <div class="total-val" style="min-width:0;color:${colorIndice}">${stats.indice.score}/100</div>
+      </div>
+    </div>
+
+    <div class="letras-blk" style="display:block">
+      <div class="lbl" style="margin-bottom:4px">Recomendaciones:</div>
+      <ul style="margin:0;padding-left:16px;font-size:9.5px">
+        ${stats.recomendaciones.map(r => `<li style="margin-bottom:2px">${esc(r)}</li>`).join('')}
+      </ul>
+    </div>
+
+    <div class="firma-blk" style="border-top:1px solid #ccc;margin-top:10px;padding-top:6px">
+      <div style="font-size:9px;color:#888">Informe generado el ${fmtFecha(fecha)} · uso informativo para el propietario.</div>
+    </div>
+  </div>`;
+
+  abrirVentana('Informe de Comercialización', cuerpo);
 }

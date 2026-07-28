@@ -3,10 +3,11 @@
    ============================================================ */
 import { api } from './data.js';
 import { diasEntre, parseFechaLocal } from './lib.js';
-import { ALERTA_VENCIMIENTO_DIAS } from './config.js';
+import { ALERTA_VENCIMIENTO_DIAS, CANALES_COMERCIALIZACION } from './config.js';
 
 const state = {
   clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [],
+  interesados: [],
   loaded: false,
 };
 
@@ -87,6 +88,22 @@ export const actions = {
   async addMovimiento(cajaId, data)      { await api.addMovimiento(cajaId, data); await refresh(); },
   async deleteMovimiento(cajaId, movId)  { await api.deleteMovimiento(cajaId, movId); await refresh(); },
   async cerrarCaja(cajaId)               { await api.cerrarCaja(cajaId); await refresh(); },
+
+  /* Ventas: documentación/comercialización/informes de una propiedad en venta */
+  async addDocumentoPropiedad(propId, doc)          { await api.addDocumentoPropiedad(propId, doc); await refresh(); },
+  async updateDocumentoPropiedad(propId, docId, p)  { await api.updateDocumentoPropiedad(propId, docId, p); await refresh(); },
+  async deleteDocumentoPropiedad(propId, docId)     { await api.deleteDocumentoPropiedad(propId, docId); await refresh(); },
+  async addComercializacionPropiedad(propId, accion)      { await api.addComercializacionPropiedad(propId, accion); await refresh(); },
+  async updateComercializacionPropiedad(propId, accId, p) { await api.updateComercializacionPropiedad(propId, accId, p); await refresh(); },
+  async deleteComercializacionPropiedad(propId, accId)    { await api.deleteComercializacionPropiedad(propId, accId); await refresh(); },
+  async addInformePropiedad(propId, informe)        { const r = await api.addInformePropiedad(propId, informe); await refresh(); return r; },
+
+  /* Interesados (Ventas) */
+  async createInteresado(d)     { await api.createInteresado(d); await refresh(); },
+  async updateInteresado(id, p) { await api.updateInteresado(id, p); await refresh(); },
+  async deleteInteresado(id)    { await api.deleteInteresado(id); await refresh(); },
+  async addContactoInteresado(intId, contacto) { await api.addContactoInteresado(intId, contacto); await refresh(); },
+  async deleteContactoInteresado(intId, ctoId) { await api.deleteContactoInteresado(intId, ctoId); await refresh(); },
 
   /* Reset */
   resetDemo() { api.resetDemo(); return refresh(); },
@@ -274,6 +291,159 @@ export const sel = {
     return state.agenda.filter(e => !e.completado && e.fecha >= hoy).sort((a,b) => a.fecha.localeCompare(b.fecha));
   },
 
+  /* ---- Ventas: propiedades marcadas para vender (habilitadaVenta) ---- */
+  propiedadesEnVenta() {
+    return state.propiedades.filter(p => p.habilitadaVenta && p.estado !== 'vendida');
+  },
+  interesadosDePropiedad(propiedadId) {
+    return state.interesados.filter(i => (i.propiedadesIds || []).includes(propiedadId));
+  },
+
+  /** Índice de vendibilidad (0-100) de una propiedad en venta, con el detalle de
+   *  cada factor que lo compone (para poder mostrar "por qué" tiene ese puntaje). */
+  indiceVendibilidad(p) {
+    const docs = p.documentos || [];
+    const mkt  = p.comercializacion || [];
+    const factores = [];
+    let score = 0;
+
+    // 1) Estado documental — 20 pts
+    const totalDocs = docs.length;
+    const completos = docs.filter(d => d.estado === 'completo').length;
+    const ptsDocs = totalDocs ? Math.round((completos / totalDocs) * 20) : 0;
+    score += ptsDocs;
+    factores.push({ label: 'Documentación completa', puntos: ptsDocs, max: 20, detalle: totalDocs ? `${completos}/${totalDocs} documentos completos` : 'Sin documentos cargados' });
+
+    // 2) Presencia en canales de comercialización — 20 pts
+    const canalesUsados = new Set(mkt.map(m => m.accion));
+    const ptsCanales = Math.round(Math.min(1, canalesUsados.size / CANALES_COMERCIALIZACION.length) * 20);
+    score += ptsCanales;
+    factores.push({ label: 'Publicación en canales', puntos: ptsCanales, max: 20, detalle: `${canalesUsados.size} canal${canalesUsados.size !== 1 ? 'es' : ''} utilizados` });
+
+    // 3) Fotos y videos de calidad — 15 pts
+    let ptsFV = 0;
+    if (canalesUsados.has('Fotos profesionales')) ptsFV += 8;
+    if (canalesUsados.has('Videos'))               ptsFV += 4;
+    if (canalesUsados.has('Drone'))                ptsFV += 3;
+    score += ptsFV;
+    factores.push({ label: 'Fotos y videos de calidad', puntos: ptsFV, max: 15, detalle: [
+      canalesUsados.has('Fotos profesionales') ? 'con fotos profesionales' : 'sin fotos profesionales',
+      canalesUsados.has('Videos') ? 'con video' : 'sin video',
+      canalesUsados.has('Drone') ? 'con drone' : 'sin drone',
+    ].join(' · ') });
+
+    // 4) Publicidad paga — 10 pts
+    const hoy = new Date().toISOString().slice(0, 10);
+    const campañaActiva = mkt.some(m => m.accion === 'Publicidad Meta Ads' && m.fechaInicio && m.fechaFin && m.fechaInicio <= hoy && hoy <= m.fechaFin);
+    const tuvoCampaña = mkt.some(m => m.accion === 'Publicidad Meta Ads');
+    const ptsAds = campañaActiva ? 10 : tuvoCampaña ? 5 : 0;
+    score += ptsAds;
+    factores.push({ label: 'Publicidad paga', puntos: ptsAds, max: 10, detalle: campañaActiva ? 'Campaña activa' : tuvoCampaña ? 'Tuvo campañas, ninguna activa' : 'Sin publicidad paga' });
+
+    // 5) Antigüedad de la captación — 10 pts (más fresca = mejor)
+    const dias = diasEntre(parseFechaLocal(p.fechaAlta), new Date());
+    const ptsAntig = dias <= 30 ? 10 : dias <= 90 ? 7 : dias <= 180 ? 4 : 1;
+    score += ptsAntig;
+    factores.push({ label: 'Antigüedad de la captación', puntos: ptsAntig, max: 10, detalle: `${dias} día${dias !== 1 ? 's' : ''} desde la captación` });
+
+    // 6) Consultas / interesados vinculados — 15 pts
+    const nInteresados = sel.interesadosDePropiedad(p.id).length;
+    const ptsInt = nInteresados >= 6 ? 15 : nInteresados >= 3 ? 10 : nInteresados >= 1 ? 5 : 0;
+    score += ptsInt;
+    factores.push({ label: 'Consultas / interesados', puntos: ptsInt, max: 15, detalle: `${nInteresados} interesado${nInteresados !== 1 ? 's' : ''} vinculados` });
+
+    // 7) Flexibilidad del propietario — 5 pts
+    const ptsFlex = p.flexiblePropietario ? 5 : 0;
+    score += ptsFlex;
+    factores.push({ label: 'Flexibilidad del propietario', puntos: ptsFlex, max: 5, detalle: p.flexiblePropietario ? 'Propietario flexible' : 'Sin flexibilidad declarada' });
+
+    // 8) Estado de conservación — 5 pts
+    const conserv = { excelente: 5, bueno: 4, regular: 2, malo: 0 };
+    const ptsConserv = conserv[p.estadoConservacion] ?? 2;
+    score += ptsConserv;
+    factores.push({ label: 'Estado de conservación', puntos: ptsConserv, max: 5, detalle: p.estadoConservacion || 'No especificado' });
+
+    score = Math.max(0, Math.min(100, score));
+    const color = score >= 70 ? 'green' : score >= 40 ? 'yellow' : 'red';
+    return { score, color, factores };
+  },
+
+  /** Sugerencias accionables derivadas de los factores con puntaje bajo. */
+  recomendacionesVenta(p) {
+    const { factores } = sel.indiceVendibilidad(p);
+    const mkt = p.comercializacion || [];
+    const canalesUsados = new Set(mkt.map(m => m.accion));
+    const f = (label) => factores.find(x => x.label === label);
+    const recos = [];
+
+    if ((f('Documentación completa')?.puntos ?? 0) < 15) recos.push('Completá la documentación pendiente.');
+    if ((f('Publicación en canales')?.puntos ?? 0) < 12) recos.push('Publicá en más plataformas.');
+    if (!canalesUsados.has('Fotos profesionales')) recos.push('Actualizá las fotografías (contratá un fotógrafo profesional).');
+    if (!canalesUsados.has('Videos'))               recos.push('Realizá nuevos videos.');
+    if (!canalesUsados.has('Drone'))                recos.push('Incorporá imágenes con drone.');
+    if ((f('Publicidad paga')?.puntos ?? 0) < 10)   recos.push('Aumentá el presupuesto publicitario (campaña de Meta Ads).');
+    if ((f('Antigüedad de la captación')?.puntos ?? 0) <= 4) recos.push('Evaluá bajar el precio o aceptar financiación / permutas.');
+    if ((f('Consultas / interesados')?.puntos ?? 0) <= 5)    recos.push('Mejorá la descripción de la publicación.');
+    if (!recos.length) recos.push('La propiedad está en buen estado de comercialización. Mantené el seguimiento habitual.');
+    return recos.slice(0, 6);
+  },
+
+  /** Alertas automáticas de una propiedad en venta: documentación, autorización,
+   *  renovación de fotos/video y recordatorio de contacto con el propietario. */
+  alertasVenta(p) {
+    const alerts = [];
+
+    const docs = p.documentos || [];
+    const pendientesOFaltantes = docs.filter(d => d.estado !== 'completo');
+    if (pendientesOFaltantes.length) {
+      alerts.push({
+        tipo: 'documentacion',
+        mensaje: `${pendientesOFaltantes.length} documento${pendientesOFaltantes.length !== 1 ? 's' : ''} pendiente${pendientesOFaltantes.length !== 1 ? 's' : ''}/faltante${pendientesOFaltantes.length !== 1 ? 's' : ''}`,
+        urgente: pendientesOFaltantes.some(d => d.estado === 'faltante'),
+      });
+    }
+
+    if (p.fechaVencimientoAutorizacion) {
+      const dias = diasEntre(new Date(), p.fechaVencimientoAutorizacion);
+      if (dias <= 30) {
+        alerts.push({
+          tipo: 'autorizacion',
+          mensaje: dias < 0 ? `Autorización de venta vencida hace ${Math.abs(dias)} días` : `Autorización de venta vence en ${dias} día${dias !== 1 ? 's' : ''}`,
+          urgente: dias <= 7,
+        });
+      }
+    }
+
+    const mkt = p.comercializacion || [];
+    const ultimaFoto = mkt.filter(m => m.accion === 'Fotos profesionales').sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
+    if (!ultimaFoto || diasEntre(parseFechaLocal(ultimaFoto.fecha), new Date()) >= 180) {
+      alerts.push({ tipo: 'fotos', mensaje: 'Renovar fotografías (sin actualizar hace más de 6 meses)', urgente: false });
+    }
+    const ultimoVideo = mkt.filter(m => m.accion === 'Videos').sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
+    if (!ultimoVideo || diasEntre(parseFechaLocal(ultimoVideo.fecha), new Date()) >= 180) {
+      alerts.push({ tipo: 'videos', mensaje: 'Renovar videos (sin actualizar hace más de 6 meses)', urgente: false });
+    }
+
+    const frecDias = p.frecuenciaRecordatorioDias === 'personalizado'
+      ? (Number(p.frecuenciaRecordatorioDiasCustom) || 30)
+      : (Number(p.frecuenciaRecordatorioDias) || 30);
+    const baseContacto = p.ultimoContactoPropietario || p.fechaAlta;
+    const diasSinContacto = diasEntre(parseFechaLocal(baseContacto), new Date());
+    if (diasSinContacto >= frecDias) {
+      alerts.push({
+        tipo: 'contacto',
+        mensaje: `Contactar nuevamente al propietario (${diasSinContacto} días sin contacto)`,
+        urgente: diasSinContacto >= frecDias * 1.5,
+      });
+    }
+
+    return alerts;
+  },
+  /** Todas las alertas de todas las propiedades en venta, cada una con referencia a su propiedad. */
+  alertasVentas() {
+    return sel.propiedadesEnVenta().flatMap(p => sel.alertasVenta(p).map(a => ({ ...a, propiedad: p })));
+  },
+
   /* ---- Matching propiedad ↔ clientes ---- */
   /**
    * Dado una propiedad, devuelve los clientes interesados con su % de coincidencia.
@@ -310,6 +480,8 @@ export const sel = {
       proxVencimientos:  sel.proxVencimientos().length,
       eventosHoy:        sel.eventosHoy().length,
       paraAjuste:        sel.contratosParaAjuste().length,
+      propiedadesEnVenta: sel.propiedadesEnVenta().length,
+      alertasVentas:      sel.alertasVentas().length,
     };
   },
 

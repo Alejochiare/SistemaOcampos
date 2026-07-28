@@ -14,7 +14,7 @@ function trySet(key, value) {
 }
 
 function estadoInicial() {
-  return { clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [] };
+  return { clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [], interesados: [] };
 }
 
 function load() {
@@ -209,6 +209,9 @@ export const api = {
       fechaAlta: new Date().toISOString(),
       estado: 'disponible',
       fotos: [],
+      documentos: [],
+      comercializacion: [],
+      informes: [],
       ...data,
     };
     _db.propiedades.unshift(p);
@@ -588,6 +591,107 @@ export const api = {
   },
   async deleteEvento(id) {
     _db.agenda = _db.agenda.filter(x => x.id !== id);
+    persist(_db);
+    return delay(true);
+  },
+
+  /* ---- VENTAS: documentación, comercialización e informes de una propiedad
+     marcada para vender (habilitadaVenta). Cuelgan directamente de la propiedad
+     — la propiedad en sí se carga siempre desde "Propiedades". ---- */
+  async addDocumentoPropiedad(propiedadId, doc) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(null);
+    p.documentos = p.documentos || [];
+    const d = { id: uid('doc'), fechaSubida: new Date().toISOString(), estado: 'completo', ...doc };
+    p.documentos.push(d);
+    persist(_db);
+    return delay(structuredClone(d));
+  },
+  async updateDocumentoPropiedad(propiedadId, docId, patch) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(null);
+    const d = (p.documentos || []).find(x => x.id === docId);
+    if (d) { Object.assign(d, patch); persist(_db); }
+    return delay(d ? structuredClone(d) : null);
+  },
+  async deleteDocumentoPropiedad(propiedadId, docId) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(false);
+    p.documentos = (p.documentos || []).filter(x => x.id !== docId);
+    persist(_db);
+    return delay(true);
+  },
+  async addComercializacionPropiedad(propiedadId, accion) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(null);
+    p.comercializacion = p.comercializacion || [];
+    const a = { id: uid('mkt'), fecha: new Date().toISOString().slice(0, 10), ...accion };
+    p.comercializacion.push(a);
+    persist(_db);
+    return delay(structuredClone(a));
+  },
+  async updateComercializacionPropiedad(propiedadId, accionId, patch) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(null);
+    const a = (p.comercializacion || []).find(x => x.id === accionId);
+    if (a) { Object.assign(a, patch); persist(_db); }
+    return delay(a ? structuredClone(a) : null);
+  },
+  async deleteComercializacionPropiedad(propiedadId, accionId) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(false);
+    p.comercializacion = (p.comercializacion || []).filter(x => x.id !== accionId);
+    persist(_db);
+    return delay(true);
+  },
+  async addInformePropiedad(propiedadId, informe) {
+    const p = _db.propiedades.find(x => x.id === propiedadId);
+    if (!p) return delay(null);
+    p.informes = p.informes || [];
+    const i = { id: uid('inf'), fecha: new Date().toISOString(), ...informe };
+    p.informes.unshift(i);
+    persist(_db);
+    return delay(structuredClone(i));
+  },
+
+  /* ---- INTERESADOS (VENTAS: leads/compradores potenciales) ---- */
+  async createInteresado(data) {
+    if (!_db.interesados) _db.interesados = [];
+    const i = {
+      id: uid('int'),
+      fechaAlta: new Date().toISOString(),
+      contactos: [],
+      propiedadesIds: [],
+      ...data,
+    };
+    _db.interesados.unshift(i);
+    persist(_db);
+    return delay(structuredClone(i));
+  },
+  async updateInteresado(id, patch) {
+    if (!_db.interesados) _db.interesados = [];
+    const i = _db.interesados.find(x => x.id === id);
+    if (i) { Object.assign(i, patch); persist(_db); }
+    return delay(i ? structuredClone(i) : null);
+  },
+  async deleteInteresado(id) {
+    _db.interesados = (_db.interesados || []).filter(x => x.id !== id);
+    persist(_db);
+    return delay(true);
+  },
+  async addContactoInteresado(interesadoId, contacto) {
+    const i = (_db.interesados || []).find(x => x.id === interesadoId);
+    if (!i) return delay(null);
+    i.contactos = i.contactos || [];
+    const c = { id: uid('cto'), fecha: new Date().toISOString().slice(0, 10), hora: new Date().toTimeString().slice(0, 5), ...contacto };
+    i.contactos.push(c);
+    persist(_db);
+    return delay(structuredClone(c));
+  },
+  async deleteContactoInteresado(interesadoId, contactoId) {
+    const i = (_db.interesados || []).find(x => x.id === interesadoId);
+    if (!i) return delay(false);
+    i.contactos = (i.contactos || []).filter(x => x.id !== contactoId);
     persist(_db);
     return delay(true);
   },

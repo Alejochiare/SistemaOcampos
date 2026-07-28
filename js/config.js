@@ -70,6 +70,65 @@ export const TIPOS_EVENTO = [
   { id: 'otro',        label: 'Otro' },
 ];
 
+/* ============================================================
+   VENTAS · Comercialización de propiedades marcadas para vender
+   (la propiedad en sí se carga desde "Propiedades"; esto es
+   vocabulario auxiliar para el circuito de venta)
+   ============================================================ */
+export const EXCLUSIVIDAD_VENTA = [
+  { id: 'exclusiva',  label: 'Exclusiva' },
+  { id: 'compartida', label: 'Compartida con otra inmobiliaria' },
+];
+
+export const PLAZOS_COMERCIALIZACION = [
+  { id: '90',  label: '90 días' },
+  { id: '180', label: '180 días' },
+  { id: '365', label: '1 año' },
+  { id: 'personalizado', label: 'Personalizado' },
+];
+
+export const TIPOS_DOCUMENTO_VENTA = [
+  'Escritura', 'Plano', 'Matrícula', 'Copia de escritura', 'DNI propietario',
+  'Informe de Catastro', 'Cédula de Rentas', 'Número de cuenta municipal',
+  'Impuesto provincial', 'Impuesto municipal', 'Informe de inhibición', 'Otros',
+];
+
+export const ESTADOS_DOCUMENTO = [
+  { id: 'completo',  label: 'Completo',  simbolo: '✅', badge: 'badge-success' },
+  { id: 'pendiente', label: 'Pendiente', simbolo: '⚠️', badge: 'badge-warning' },
+  { id: 'faltante',  label: 'Faltante',  simbolo: '❌', badge: 'badge-danger' },
+];
+
+export const CANALES_COMERCIALIZACION = [
+  'Publicado en sitio web', 'Facebook', 'Instagram', 'Marketplace', 'Cartel colocado',
+  'Fotos profesionales', 'Videos', 'Drone', 'Reel', 'Publicidad Meta Ads',
+];
+
+export const ORIGENES_INTERESADO = ['Facebook', 'Instagram', 'Página web', 'Marketplace', 'Referido', 'Cartel', 'Otro'];
+
+export const TIPOS_CONTACTO_INTERESADO = [
+  { id: 'consulta',     label: 'Consulta' },
+  { id: 'llamada',      label: 'Llamada telefónica' },
+  { id: 'whatsapp',     label: 'WhatsApp' },
+  { id: 'visita',       label: 'Visitó el inmueble' },
+  { id: 'oferta',       label: 'Realizó una oferta' },
+  { id: 'contraoferta', label: 'Contraoferta' },
+  { id: 'otro',         label: 'Otro' },
+];
+
+export const FRECUENCIAS_RECORDATORIO = [
+  { id: '30', label: 'Cada 30 días' },
+  { id: '40', label: 'Cada 40 días' },
+  { id: '50', label: 'Cada 50 días' },
+  { id: 'personalizado', label: 'Personalizado' },
+];
+
+export const FRECUENCIAS_INFORME = [
+  { id: '30', label: 'Cada 30 días' },
+  { id: '45', label: 'Cada 45 días' },
+  { id: '60', label: 'Cada 60 días' },
+];
+
 /* Días de alerta antes de vencimiento de contrato */
 export const ALERTA_VENCIMIENTO_DIAS = 60;
 

@@ -8,7 +8,8 @@ import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto } from '../lib.js
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
-  VENTA_ESTADOS, TIPOS_EVENTO, icon, DIA_LIMITE_PAGO
+  VENTA_ESTADOS, TIPOS_EVENTO, icon, DIA_LIMITE_PAGO,
+  EXCLUSIVIDAD_VENTA, PLAZOS_COMERCIALIZACION, FRECUENCIAS_RECORDATORIO, FRECUENCIAS_INFORME
 } from '../config.js';
 
 const opts = (arr, sel) => arr.map(o => {
@@ -502,12 +503,58 @@ export function openPropForm(prop = null, onDone) {
             </span>
           </label>
           <label style="display:flex;align-items:center;gap:.8rem;cursor:pointer;font-size:.92rem;font-weight:500">
-            <input type="checkbox" name="habilitadaVenta" value="1" ${prop.habilitadaVenta?'checked':''} style="width:18px;height:18px;cursor:pointer">
+            <input type="checkbox" name="habilitadaVenta" id="chkHabVenta" value="1" ${prop.habilitadaVenta?'checked':''} style="width:18px;height:18px;cursor:pointer">
             <span>
               <div style="font-weight:600;color:var(--text)">🏠 Vender</div>
-              <small style="color:var(--text-soft);display:block;margin-top:.15rem">Venta de la propiedad</small>
+              <small style="color:var(--text-soft);display:block;margin-top:.15rem">Venta de la propiedad — habilita el circuito de comercialización en "Ventas"</small>
             </span>
           </label>
+        </div>
+
+        <div id="blkInfoVenta" style="display:${prop.habilitadaVenta?'block':'none'}">
+          <h3 class="form-section-title" style="margin-top:1.5rem">Información de venta</h3>
+          <div class="form-grid">
+            <div class="form-group"><label>Comisión inmobiliaria (%)</label>
+              <input name="comisionInmobiliaria" type="number" min="0" step="0.1" value="${prop.comisionInmobiliaria ?? ''}"></div>
+            <div class="form-group"><label>Comisión vendedor (%)</label>
+              <input name="comisionVendedor" type="number" min="0" step="0.1" value="${prop.comisionVendedor ?? ''}"></div>
+            <div class="form-group"><label>Comisión comprador (%)</label>
+              <input name="comisionComprador" type="number" min="0" step="0.1" value="${prop.comisionComprador ?? ''}"></div>
+            <div class="form-group"><label>Fecha de publicación</label>
+              <input name="fechaPublicacionVenta" type="date" value="${(prop.fechaPublicacionVenta || '').slice(0, 10)}"></div>
+            <div class="form-group"><label>Exclusividad</label>
+              <select name="exclusividad">${opts(EXCLUSIVIDAD_VENTA, prop.exclusividad || 'exclusiva')}</select></div>
+            <div class="form-group"><label>Vencimiento autorización de venta</label>
+              <input name="fechaVencimientoAutorizacion" type="date" value="${(prop.fechaVencimientoAutorizacion || '').slice(0, 10)}"></div>
+            <div class="form-group"><label>Plazo de comercialización</label>
+              <select name="plazoComercializacion" id="selPlazo">${opts(PLAZOS_COMERCIALIZACION, prop.plazoComercializacion || '180')}</select></div>
+            <div class="form-group" id="blkPlazoCustom" style="${prop.plazoComercializacion === 'personalizado' ? '' : 'display:none'}">
+              <label>Días (personalizado)</label>
+              <input name="plazoComercializacionDias" type="number" min="1" value="${prop.plazoComercializacionDias || ''}"></div>
+            <div class="form-group"><label>Recordatorio de contacto al propietario</label>
+              <select name="frecuenciaRecordatorioDias" id="selFrecRecordatorio">${opts(FRECUENCIAS_RECORDATORIO, prop.frecuenciaRecordatorioDias || '30')}</select></div>
+            <div class="form-group" id="blkRecordatorioCustom" style="${prop.frecuenciaRecordatorioDias === 'personalizado' ? '' : 'display:none'}">
+              <label>Días (personalizado)</label>
+              <input name="frecuenciaRecordatorioDiasCustom" type="number" min="1" value="${prop.frecuenciaRecordatorioDiasCustom || ''}"></div>
+            <div class="form-group"><label>Informes automáticos cada</label>
+              <select name="frecuenciaInformeDias">${opts(FRECUENCIAS_INFORME, prop.frecuenciaInformeDias || '30')}</select></div>
+            <div class="form-group"><label>Estado de conservación</label>
+              <select name="estadoConservacion">
+                <option value="">— Sin especificar —</option>
+                <option value="excelente" ${prop.estadoConservacion === 'excelente' ? 'selected' : ''}>Excelente</option>
+                <option value="bueno" ${prop.estadoConservacion === 'bueno' ? 'selected' : ''}>Bueno</option>
+                <option value="regular" ${prop.estadoConservacion === 'regular' ? 'selected' : ''}>Regular</option>
+                <option value="malo" ${prop.estadoConservacion === 'malo' ? 'selected' : ''}>Malo</option>
+              </select></div>
+            <div class="form-group">
+              <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;margin-top:1.6rem">
+                <input type="checkbox" name="flexiblePropietario" value="1" ${prop.flexiblePropietario ? 'checked' : ''} style="width:16px;height:16px">
+                Propietario flexible (precio/condiciones)
+              </label>
+            </div>
+            <div class="form-group full"><label>Descripción optimizada para publicaciones (Meta Ads, Instagram)</label>
+              <textarea name="descripcionAds" rows="3" placeholder="Copy corto y atractivo para usar en anuncios pagos y redes.">${esc(prop.descripcionAds || '')}</textarea></div>
+          </div>
         </div>
 
         <h3 class="form-section-title" style="margin-top:1.5rem">Precios</h3>
@@ -549,6 +596,17 @@ export function openPropForm(prop = null, onDone) {
     onMount(ctx) {
       // Propietario(s) — lista repetible con autocomplete por fila
       const propietariosCtl = montarPropietarios(ctx, selStore.propietariosDePropiedad(prop), propietarios);
+
+      // Mostrar/ocultar la sección de información de venta
+      ctx.overlay.querySelector('#chkHabVenta').addEventListener('change', (e) => {
+        ctx.overlay.querySelector('#blkInfoVenta').style.display = e.target.checked ? 'block' : 'none';
+      });
+      ctx.overlay.querySelector('#selPlazo')?.addEventListener('change', (e) => {
+        ctx.overlay.querySelector('#blkPlazoCustom').style.display = e.target.value === 'personalizado' ? 'block' : 'none';
+      });
+      ctx.overlay.querySelector('#selFrecRecordatorio')?.addEventListener('change', (e) => {
+        ctx.overlay.querySelector('#blkRecordatorioCustom').style.display = e.target.value === 'personalizado' ? 'block' : 'none';
+      });
 
       // Fotos
       let fotos = [...fotosGuardadas];
@@ -602,6 +660,11 @@ export function openPropForm(prop = null, onDone) {
         const propietariosElegidos = propietariosCtl.getPropietarios();
         if (!propietariosElegidos.length) { toast('Seleccioná al menos un propietario', { tipo: 'warning' }); return; }
         if (!f.direccion.value.trim()) { f.direccion.focus(); toast('La dirección es obligatoria', { tipo: 'warning' }); return; }
+        const estadoElegido = f.estado.value;
+        if (!['alquilada', 'vendida'].includes(estadoElegido) && fotos.length === 0) {
+          toast('Subí al menos una foto de la propiedad (mientras esté disponible/reservada)', { tipo: 'warning' });
+          return;
+        }
         const fd = new FormData(f);
         const data = Object.fromEntries(fd.entries());
         // Propietario(s): se guarda la lista completa + propietarioId (primero) para compatibilidad
@@ -609,6 +672,10 @@ export function openPropForm(prop = null, onDone) {
         data.propietarioId = propietariosElegidos[0].propietarioId;
         // Numéricos (cantidades)
         ['ambientes','banos','m2','m2Cubiertos','antiguedad','pisosEdificio'].forEach(k => {
+          data[k] = data[k] ? Number(data[k]) : null;
+        });
+        // Numéricos de venta
+        ['comisionInmobiliaria','comisionVendedor','comisionComprador','plazoComercializacionDias','frecuenciaRecordatorioDiasCustom'].forEach(k => {
           data[k] = data[k] ? Number(data[k]) : null;
         });
         // Montos (con formato de miles a limpiar)
@@ -621,6 +688,7 @@ export function openPropForm(prop = null, onDone) {
         data.habilitadaAlquiler = !!ctx.overlay.querySelector('[name="habilitadaAlquiler"]')?.checked;
         data.habilitadaTemporal = !!ctx.overlay.querySelector('[name="habilitadaTemporal"]')?.checked;
         data.habilitadaVenta = !!ctx.overlay.querySelector('[name="habilitadaVenta"]')?.checked;
+        data.flexiblePropietario = !!ctx.overlay.querySelector('[name="flexiblePropietario"]')?.checked;
         // Fotos
         data.fotos = fotos;
         delete data.fotosJSON;

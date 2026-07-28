@@ -208,7 +208,10 @@ function pintarDetalle(el, id) {
           <p class="view-sub">${p.tipo || ''}</p>
         </div>
       </div>
-      <button class="btn btn-ghost" id="btnEditarProp">${icon('edit')} Editar</button>
+      <div class="flex gap-2">
+        ${p.habilitadaVenta ? `<button class="btn btn-ghost" id="btnVerEnVentas">${icon('trending')} Ver en Ventas</button>` : ''}
+        <button class="btn btn-ghost" id="btnEditarProp">${icon('edit')} Editar</button>
+      </div>
     </div>
 
     <div class="two-col-grid">
@@ -314,6 +317,7 @@ function pintarDetalle(el, id) {
     </div>`;
 
   el.querySelector('#btnEditarProp')?.addEventListener('click', () => openPropForm(p, () => {}));
+  el.querySelector('#btnVerEnVentas')?.addEventListener('click', () => navegar(`ventas/${p.id}`));
   el.querySelectorAll('[data-goto-prop]').forEach(btn => {
     btn.addEventListener('click', () => navegar(`propietarios/${btn.dataset.gotoProp}`));
   });

@@ -37,6 +37,12 @@ a { color: var(--primary); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; }
 input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 
+/* Tamaño por defecto para íconos SVG inline sin una clase que los acote
+   (ej. dentro de un <h3>) — evita que rendericen al tamaño intrínseco del
+   navegador (~300x150px). Cualquier regla más específica (.btn svg, etc.)
+   sigue ganando por especificidad. */
+svg { width: 1em; height: 1em; vertical-align: -0.125em; }
+
 /* Números tabulares para datos */
 .tnum, .kpi-value, table td, .badge-count {
   font-variant-numeric: tabular-nums;

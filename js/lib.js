@@ -99,6 +99,15 @@ export function colorDe(str = '') {
   return colores[Math.abs(h) % colores.length];
 }
 
+/** Construye un enlace wa.me con texto pre-cargado (formato AR: 549...) */
+export function waLink(numero, texto = '') {
+  let n = String(numero || '').replace(/\D/g, '');
+  if (!n) return null;
+  if (!n.startsWith('54')) n = '549' + n;          // celular Argentina
+  else if (!n.startsWith('549')) n = '54' + '9' + n.slice(2);
+  return `https://wa.me/${n}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
+}
+
 export function descargar(contenido, nombre, tipo = 'text/plain') {
   const blob = (contenido instanceof Blob) ? contenido : new Blob([contenido], { type: tipo });
   const url = URL.createObjectURL(blob);
