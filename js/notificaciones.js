@@ -75,6 +75,13 @@ function alertasAuto() {
       const id = `aumento_${alq.id}_${ajInfo.pendientes}`;
       alerts.push({ id, titulo: `Aumento pendiente — ${nombre}`, cuerpo: `${ajInfo.pendientes} ajuste${ajInfo.pendientes!==1?'s':''} sin aplicar · ${dir}`, alqId: alq.id, fecha: hoy });
     }
+
+    // Aumento próximo (cuenta regresiva desde 10 días antes de la fecha)
+    if (ajInfo && ajInfo.pendientes === 0 && ajInfo.diasHastaProx >= 0 && ajInfo.diasHastaProx <= 10) {
+      const id = `aumentoproximo_${alq.id}_${ajInfo.diasHastaProx}`;
+      const cuando = ajInfo.diasHastaProx === 0 ? 'hoy' : `en ${ajInfo.diasHastaProx} día${ajInfo.diasHastaProx!==1?'s':''}`;
+      alerts.push({ id, titulo: `Aumento próximo — ${nombre}`, cuerpo: `${dir} aumenta ${cuando}`, alqId: alq.id, fecha: hoy });
+    }
   });
 
   return alerts;
