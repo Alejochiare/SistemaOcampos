@@ -6,6 +6,34 @@
 export const $ = (sel, ctx = document) => ctx.querySelector(sel);
 export const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
 
+/** Redimensiona/comprime una foto antes de guardarla como base64: todo se guarda
+    en localStorage (~5-10MB de límite total), así que sin esto un puñado de fotos
+    de celular alcanza para llenarlo. Devuelve un dataURL JPEG liviano. */
+export function comprimirImagen(file, { maxDim = 1600, calidad = 0.75 } = {}) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onerror = () => resolve(ev.target.result); // si falla, se guarda el original tal cual
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const escala = maxDim / Math.max(width, height);
+          width = Math.round(width * escala);
+          height = Math.round(height * escala);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', calidad));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function el(html) {
   const t = document.createElement('template');
   t.innerHTML = html.trim();

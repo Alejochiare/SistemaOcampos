@@ -15,11 +15,19 @@ import { initRouter } from './router.js';
 import { initNotifications } from './notifications.js';
 import { $, formatearMontoInput } from './lib.js';
 import { actualizarIndices } from './indices.js';
+import { toast } from './components/toast.js';
 
 // Formato de miles en vivo (200.000, 1.000.000) para cualquier input de monto,
 // sin importar en qué modal/vista se cree (delegado a nivel documento).
 document.addEventListener('input', (e) => {
   if (e.target.matches?.('.input-monto')) formatearMontoInput(e);
+});
+
+// El almacenamiento del navegador (localStorage) tiene un límite de unos 5-10MB.
+// Si se llena (normalmente por fotos pesadas) el último cambio NO se guardó —
+// avisamos fuerte para que se liberen fotos/documentos, en vez de perder datos en silencio.
+window.addEventListener('inmocrm-storage-full', () => {
+  toast('No se pudo guardar el último cambio: el almacenamiento del navegador está lleno. Borrá fotos o documentos pesados para liberar espacio y volvé a intentar.', { tipo: 'danger', titulo: 'Almacenamiento lleno', duracion: 15000 });
 });
 
 async function boot() {

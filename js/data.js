@@ -7,10 +7,17 @@ const KEY = 'inmocrm_v1';
 const LATENCIA = 80;
 const delay = (v) => new Promise(r => setTimeout(() => r(v), LATENCIA));
 
-/* ---- persistencia ---- */
+/* ---- persistencia ----
+   OJO: nunca hacer localStorage.clear() acá — si se llena el almacenamiento
+   (por ejemplo por fotos pesadas) hay que avisar y conservar los datos ya
+   guardados, no borrar todo como "solución". */
 function trySet(key, value) {
-  try { localStorage.setItem(key, value); }
-  catch { localStorage.clear(); try { localStorage.setItem(key, value); } catch {} }
+  try { localStorage.setItem(key, value); return true; }
+  catch (err) {
+    console.error('No se pudo guardar en localStorage (¿almacenamiento lleno?):', err);
+    window.dispatchEvent(new CustomEvent('inmocrm-storage-full'));
+    return false;
+  }
 }
 
 function estadoInicial() {

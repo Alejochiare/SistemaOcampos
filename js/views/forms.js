@@ -4,7 +4,7 @@
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
-import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto } from '../lib.js';
+import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen } from '../lib.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
@@ -638,19 +638,17 @@ export function openPropForm(prop = null, onDone) {
         });
       };
 
-      ctx.overlay.querySelector('#inputFotos').addEventListener('change', (e) => {
+      ctx.overlay.querySelector('#inputFotos').addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
-        let loaded = 0;
-        files.forEach(file => {
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            fotos.push(ev.target.result);
-            loaded++;
-            if (loaded === files.length) renderFotos();
-          };
-          reader.readAsDataURL(file);
-        });
         e.target.value = '';
+        for (const file of files) {
+          try {
+            fotos.push(await comprimirImagen(file));
+          } catch {
+            toast(`No se pudo procesar "${file.name}"`, { tipo: 'warning' });
+          }
+        }
+        renderFotos();
       });
 
       renderFotos();
