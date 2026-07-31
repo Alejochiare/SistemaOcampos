@@ -131,7 +131,7 @@ function pintarLista(el, filtro, busqueda) {
                 <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.2rem">
                   <span class="list-name">${esc(inq?.nombre || '—')}</span>
                   ${cobrosImpagos.length ? `<span class="badge badge-danger" style="font-size:.68rem">${cobrosImpagos.length} mes${cobrosImpagos.length!==1?'es':''} sin pagar</span>` : ''}
-                  ${necesitaAumento ? `<span class="badge badge-warning" style="font-size:.68rem">⬆ Aumentar</span>` : ''}
+                  ${necesitaAumento ? `<span class="badge badge-warning" style="font-size:.68rem">⬆ Aumentar${ajInfo.vencidos > 0 ? '' : ajInfo.diasHastaProx <= 0 ? ' · hoy' : ` · en ${ajInfo.diasHastaProx}d`}</span>` : ''}
                 </div>
                 <div class="text-xs text-soft">${esc(prop?.direccion || '—')}${prop?.ciudad ? ' · ' + esc(prop.ciudad) : ''}</div>
                 <div class="text-xs" style="margin-top:.2rem;color:var(--text-soft)">
@@ -367,7 +367,9 @@ function pintarDetalle(el, id) {
       <div style="flex:1;min-width:200px">
         <div style="font-weight:700;font-size:.95rem">Contrato por aumentar</div>
         <div style="font-size:.82rem;color:var(--text-soft);margin-top:.2rem">
-          ${ajInfo.pendientes} aumento${ajInfo.pendientes>1?'s':''} pendiente${ajInfo.pendientes>1?'s':''} ·
+          ${ajInfo.vencidos > 0
+            ? `${ajInfo.pendientes} aumento${ajInfo.pendientes>1?'s':''} pendiente${ajInfo.pendientes>1?'s':''}`
+            : `Próximo aumento ${ajInfo.diasHastaProx <= 0 ? 'hoy' : `dentro de ${ajInfo.diasHastaProx} día${ajInfo.diasHastaProx!==1?'s':''}`}`} ·
           Monto actual: <strong>${fmtMoneda(montoActual, a.moneda)}</strong> ·
           ${a.tipoAjuste === 'fijo' && a.porcentajeAjuste
             ? `Calculado automáticamente (+${a.porcentajeAjuste}%) → <strong style="color:var(--success)">${fmtMoneda(Math.round(montoActual*(1+a.porcentajeAjuste/100)), a.moneda)}</strong>`

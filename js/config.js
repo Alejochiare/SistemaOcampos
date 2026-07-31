@@ -146,6 +146,10 @@ export const FRECUENCIAS_INFORME = [
 /* Días de alerta antes de vencimiento de contrato */
 export const ALERTA_VENCIMIENTO_DIAS = 60;
 
+/* Días de anticipación antes de que corresponda el próximo ajuste de alquiler,
+   para que ya empiece a figurar como "por aumentar" (con cuenta regresiva). */
+export const ALERTA_AJUSTE_DIAS = 10;
+
 /* Día límite de pago del alquiler; desde el día siguiente corre la mora */
 export const DIA_LIMITE_PAGO = 10;
 

@@ -3,7 +3,7 @@
    ============================================================ */
 import { api } from './data.js';
 import { diasEntre, parseFechaLocal } from './lib.js';
-import { ALERTA_VENCIMIENTO_DIAS, CANALES_COMERCIALIZACION, PESOS_DOCUMENTO_VENTA } from './config.js';
+import { ALERTA_VENCIMIENTO_DIAS, ALERTA_AJUSTE_DIAS, CANALES_COMERCIALIZACION, PESOS_DOCUMENTO_VENTA } from './config.js';
 
 const state = {
   clientes: [], propietarios: [], propiedades: [], alquileres: [], ventas: [], agenda: [], caja: [], temporales: [], liquidaciones: [],
@@ -232,33 +232,28 @@ export const sel = {
    * Contratos activos cuyo próximo ajuste de precio ya llegó o está a ≤30 días.
    * Retorna [{ alq, diasRestantes, proximoAjuste }] ordenado de más urgente a menos.
    */
+  /**
+   * Contratos activos cuyo próximo ajuste de precio ya llegó, está vencido, o está a
+   * ≤ALERTA_AJUSTE_DIAS días (para avisar con anticipación, no solo cuando ya corresponde).
+   * Retorna [{ alq, dias, proximoAjuste, pendientes }] ordenado de más urgente a menos.
+   */
   contratosParaAjuste() {
-    const hoy = new Date();
     const resultado = [];
     state.alquileres.forEach(alq => {
       if (['rescindido', 'renovado'].includes(alq.estado)) return;
       if (sel.diasAlVencimiento(alq) < 0) return;
       if (!alq.fechaInicio || !alq.frecuenciaAjuste) return;
-      const inicio = parseFechaLocal(alq.fechaInicio);
-      const mesesFrecuencia = Number(alq.frecuenciaAjuste) || 6;
-      const mesesTranscurridos =
-        (hoy.getFullYear() - inicio.getFullYear()) * 12 +
-        (hoy.getMonth() - inicio.getMonth());
-      const expectedAjustes = Math.floor(mesesTranscurridos / mesesFrecuencia);
-      if (expectedAjustes === 0) return;
-      const appliedAjustes = (alq.historialAjustes || []).length;
-      if (appliedAjustes >= expectedAjustes) return; // ya está al día
-      // Fecha del próximo ajuste pendiente
-      const proxN = appliedAjustes + 1;
-      const proxAjuste = new Date(inicio);
-      proxAjuste.setMonth(proxAjuste.getMonth() + proxN * mesesFrecuencia);
-      const dias = Math.ceil((proxAjuste - hoy) / 86400000);
-      resultado.push({ alq, dias, proximoAjuste: proxAjuste.toISOString().slice(0,10), pendientes: expectedAjustes - appliedAjustes });
+      const ajInfo = sel.infoAjuste(alq);
+      if (!ajInfo || ajInfo.pendientes <= 0) return;
+      resultado.push({ alq, dias: ajInfo.diasHastaProx, proximoAjuste: ajInfo.proxFecha, pendientes: ajInfo.pendientes });
     });
     return resultado.sort((a, b) => a.dias - b.dias);
   },
 
-  /** Cuántos ajustes esperados tiene un contrato (para calcular el monto actual teórico) */
+  /** Cuántos ajustes esperados tiene un contrato (para calcular el monto actual teórico).
+   *  "pendientes" cuenta tanto los ajustes ya vencidos como el próximo que todavía no
+   *  llegó pero ya está a ALERTA_AJUSTE_DIAS días o menos, para poder avisar con anticipación
+   *  (ej. "dentro de 10 días", "dentro de 9 días", ...) en vez de recién el día que corresponde. */
   infoAjuste(alq) {
     if (!alq.fechaInicio || !alq.frecuenciaAjuste) return null;
     const hoy = new Date();
@@ -269,15 +264,19 @@ export const sel = {
       (hoy.getMonth() - inicio.getMonth());
     const expectedAjustes = Math.floor(mesesTranscurridos / mesesFrecuencia);
     const appliedAjustes  = (alq.historialAjustes || []).length;
+    const vencidos = Math.max(0, expectedAjustes - appliedAjustes);
     const proxN = appliedAjustes + 1;
     const proxFecha = new Date(inicio);
     proxFecha.setMonth(proxFecha.getMonth() + proxN * mesesFrecuencia);
+    const diasHastaProx = Math.ceil((proxFecha - hoy) / 86400000);
+    const proximoEnVentana = diasHastaProx <= ALERTA_AJUSTE_DIAS;
     return {
       expected: expectedAjustes,
       applied:  appliedAjustes,
-      pendientes: Math.max(0, expectedAjustes - appliedAjustes),
+      vencidos,
+      pendientes: vencidos > 0 ? vencidos : (proximoEnVentana ? 1 : 0),
       proxFecha: proxFecha.toISOString().slice(0,10),
-      diasHastaProx: Math.ceil((proxFecha - hoy) / 86400000),
+      diasHastaProx,
     };
   },
 
