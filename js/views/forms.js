@@ -660,11 +660,6 @@ export function openPropForm(prop = null, onDone) {
         const propietariosElegidos = propietariosCtl.getPropietarios();
         if (!propietariosElegidos.length) { toast('Seleccioná al menos un propietario', { tipo: 'warning' }); return; }
         if (!f.direccion.value.trim()) { f.direccion.focus(); toast('La dirección es obligatoria', { tipo: 'warning' }); return; }
-        const estadoElegido = f.estado.value;
-        if (!['alquilada', 'vendida'].includes(estadoElegido) && fotos.length === 0) {
-          toast('Subí al menos una foto de la propiedad (mientras esté disponible/reservada)', { tipo: 'warning' });
-          return;
-        }
         const fd = new FormData(f);
         const data = Object.fromEntries(fd.entries());
         // Propietario(s): se guarda la lista completa + propietarioId (primero) para compatibilidad
