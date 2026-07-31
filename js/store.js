@@ -51,13 +51,15 @@ export const actions = {
   async deletePropiedad(id)      { await api.deletePropiedad(id); await refresh(); },
 
   /* Alquileres */
-  async createAlquiler(d)           { await api.createAlquiler(d); await refresh(); },
+  async createAlquiler(d)           { const r = await api.createAlquiler(d); await refresh(); return r; },
+  async registrarEntregaContrato(alqId, d) { await api.registrarEntregaContrato(alqId, d); await refresh(); },
   async updateAlquiler(id, p)       { await api.updateAlquiler(id, p); await refresh(); },
   async deleteAlquiler(id)          { await api.deleteAlquiler(id); await refresh(); },
   async renovarAlquiler(oldId, d)   { const r = await api.renovarAlquiler(oldId, d); await refresh(); return r; },
   async cancelarAlquiler(id)        { const r = await api.cancelarAlquiler(id); await refresh(); return r; },
   async addCobro(alqId, cobro)      { const r = await api.addCobro(alqId, cobro); await refresh(); return r; },
   async updateCobro(alqId, cobId, p){ await api.updateCobro(alqId, cobId, p); await refresh(); },
+  async registrarAbonoCobro(alqId, cobId, p) { await api.registrarAbonoCobro(alqId, cobId, p); await refresh(); },
   async deshacerCobro(alqId, cobId){ await api.deshacerCobro(alqId, cobId); await refresh(); },
   async registrarAumento(alqId, nuevoMonto, nota) { await api.registrarAumento(alqId, nuevoMonto, nota); await refresh(); },
   async editarUltimoAjuste(alqId, patch) { await api.editarUltimoAjuste(alqId, patch); await refresh(); },
@@ -187,6 +189,9 @@ export const sel = {
       const cobro = cobrosPorMes[key];
       if (!cobro || !cobro.pagado) {
         pendientes.push(cobro || { mes: key, monto: alq.montoActual ?? alq.montoInicial ?? 0, pagado: false });
+      } else if (cobro.saldoPendiente > 0) {
+        // Pago parcial: solo cuenta como impago el saldo que todavía falta cobrar de ese mes.
+        pendientes.push({ ...cobro, monto: cobro.saldoPendiente });
       }
       cur.setMonth(cur.getMonth() + 1);
     }

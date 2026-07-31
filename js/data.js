@@ -252,6 +252,7 @@ export const api = {
       fechaAlta: new Date().toISOString(),
       estado: 'activo',
       cobros: [],
+      entregasContrato: [],
       ...data,
     };
     const prop = _db.propiedades.find(x => x.id === a.propiedadId);
@@ -275,6 +276,7 @@ export const api = {
       fechaAlta: new Date().toISOString(),
       estado: 'activo',
       cobros: [],
+      entregasContrato: [],
       renovadoDeId: oldId,
       ...data,
     };
@@ -285,6 +287,16 @@ export const api = {
     _db.alquileres.unshift(nuevo);
     persist(_db);
     return delay(structuredClone(nuevo));
+  },
+  /** Registra la entrega/impresión de ejemplares del contrato: a quién se le dio cada copia y cuándo. */
+  async registrarEntregaContrato(alquilerId, data) {
+    const a = _db.alquileres.find(x => x.id === alquilerId);
+    if (!a) return delay(null);
+    a.entregasContrato = a.entregasContrato || [];
+    const entrega = { id: uid('entcon'), fecha: new Date().toISOString().slice(0, 10), ...data };
+    a.entregasContrato.unshift(entrega);
+    persist(_db);
+    return delay(structuredClone(entrega));
   },
   /** Cancela (rescinde) el contrato y libera la propiedad si no queda otro contrato activo en ella. */
   async cancelarAlquiler(id) {
@@ -370,6 +382,40 @@ export const api = {
         });
         c.cajaMovimientoIds = movs.map(m => m.id);
         c.cajaMovimientoId = movs[0]?.id;
+      }
+      procesarComisionInicial(_db, a, c);
+      persist(_db);
+    }
+    return delay(c ? structuredClone(c) : null);
+  },
+  /** Suma un abono más a un mes que ya tenía un pago parcial registrado (saldoPendiente > 0).
+   *  A diferencia de updateCobro, acá SIEMPRE se genera un movimiento de caja nuevo por lo que
+   *  se cobra en este abono, porque updateCobro solo lo hace la primera vez que el mes pasa a
+   *  pagado y este mes ya venía pagado (parcialmente) de antes. */
+  async registrarAbonoCobro(alquilerId, cobroId, patch) {
+    const a = _db.alquileres.find(x => x.id === alquilerId);
+    if (!a) return delay(null);
+    const c = (a.cobros || []).find(x => x.id === cobroId);
+    if (c) {
+      Object.assign(c, patch);
+      if (Number(patch.monto || 0) > 0) {
+        const inq = _db.clientes.find(x => x.id === a.inquilinoId) || {};
+        const prop = _db.propiedades.find(x => x.id === a.propiedadId) || {};
+        const movs = crearMovimientosPago(_db, {
+          pagos: patch.pagos,
+          tipo: 'ingreso',
+          concepto: `Cobro alquiler (abono) • ${inq.nombre || 'Inquilino'} • ${prop.direccion || 'Propiedad'} • ${c.mes || ''}`.trim(),
+          monto: Number(patch.monto || 0),
+          metodoPago: patch.metodoPago,
+          referencia: patch.referencia,
+          nota: patch.nota,
+          fecha: fechaCajaDeCobro(patch),
+          origen: 'cobro-alquiler',
+          refTipo: 'cobro',
+          refId: c.id,
+        });
+        c.cajaMovimientoIds = [...(c.cajaMovimientoIds || []), ...movs.map(m => m.id)];
+        c.cajaMovimientoId = c.cajaMovimientoId || movs[0]?.id;
       }
       procesarComisionInicial(_db, a, c);
       persist(_db);

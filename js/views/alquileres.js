@@ -5,7 +5,7 @@ import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, CONTRATO_ESTADOS, MONEDAS, DIA_LIMITE_PAGO } from '../config.js';
 import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal, debounce } from '../lib.js';
 import { navegar } from '../router.js';
-import { openAlquilerForm, openCobroForm, openRenovacionForm } from './forms.js';
+import { openAlquilerForm, openCobroForm, openRenovacionForm, openAdelantoForm, openEntregaContratoForm } from './forms.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { imprimirRecibo, imprimirLiquidacion, imprimirFacturaDeuda, getAgencia, setAgencia } from '../imprimir.js';
@@ -210,7 +210,7 @@ function pintarDetalle(el, id) {
 
   const totalCobrado = (a.cobros || []).filter(c => c.pagado).reduce((s, c) => s + (Number(c.monto)||0), 0);
   const nPagados     = (a.cobros || []).filter(c => c.pagado).length;
-  const nDebe        = meses.filter(m => m.tipo === 'sin_cobro').length;
+  const nDebe        = meses.filter(m => m.tipo === 'sin_cobro' || m.tipo === 'parcial').length;
 
   // ── Render ────────────────────────────────────────────────
   el.innerHTML = `
@@ -224,6 +224,7 @@ function pintarDetalle(el, id) {
       </div>
       <div class="flex gap-2">
         <button class="btn btn-ghost" id="btnVerContrato">${icon('file')} Ver contrato</button>
+        <button class="btn btn-ghost" id="btnImprimirContrato" title="Imprimir ejemplares del contrato">${icon('download')} Imprimir ejemplares</button>
         <button class="btn btn-ghost" id="btnConfigAgencia" title="Datos de la inmobiliaria para documentos">${icon('edit')} Datos imprenta</button>
         <button class="btn btn-ghost" id="btnEditarAlq">${icon('edit')} Editar</button>
         <button class="btn btn-primary" id="btnRegistrarCobro">${icon('dollar')} Registrar cobro</button>
@@ -282,6 +283,19 @@ function pintarDetalle(el, id) {
           ${(() => { const tel = (g.telefono || '').replace(/\D/g,''); const num = tel ? (tel.startsWith('54')?tel:'54'+tel) : null; return num ? `<a href="https://wa.me/${num}" target="_blank" class="btn btn-sm" style="background:#25D366;color:#fff;display:flex;align-items:center;gap:.4rem;text-decoration:none;flex-shrink:0">${icon('whatsapp')} WhatsApp</a>` : ''; })()}
         </div>
       </div>`).join('')}
+
+      <!-- Ejemplares del contrato entregados -->
+      ${(a.entregasContrato || []).length ? `
+      <div style="border-top:1px solid var(--border);margin:0 1.25rem;padding:.75rem 0 .25rem">
+        <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-soft);font-weight:600;margin-bottom:.6rem">Ejemplares del contrato entregados</div>
+        <div style="display:flex;flex-direction:column;gap:.35rem">
+          ${(a.entregasContrato || []).map(en => `
+            <div style="font-size:.82rem">
+              <strong>${fmtFechaCorta(en.fecha)}</strong> — ${esc((en.destinatarios || []).join(', '))}
+              ${en.nota ? `<span class="text-soft"> · ${esc(en.nota)}</span>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
 
       <div style="height:.5rem"></div>
       <div style="padding:.25rem 1.25rem .9rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
@@ -434,6 +448,7 @@ function pintarDetalle(el, id) {
 
   /* ── Eventos ─────────────────────────────────────────── */
   el.querySelector('#btnVerContrato')?.addEventListener('click', () => abrirVistaContrato(a, inq, prop));
+  el.querySelector('#btnImprimirContrato')?.addEventListener('click', () => openEntregaContratoForm(a, () => {}));
   el.querySelector('#btnEditarAlq')?.addEventListener('click', () => openAlquilerForm(a, () => {}));
   el.querySelector('#btnRegistrarCobro')?.addEventListener('click',  () => openCobroForm(a, () => {}));
   el.querySelector('#btnRegistrarCobro2')?.addEventListener('click', () => openCobroForm(a, () => {}));
@@ -496,11 +511,18 @@ function pintarDetalle(el, id) {
       e.stopPropagation();
       const cobroId = btn.dataset.cobroId || null;
       const cobroExistente = cobroId ? (a.cobros || []).find(c => c.id === cobroId) : null;
+      const esParcial = cobroExistente?.pagado && cobroExistente?.saldoPendiente > 0;
       openCobroForm(a, () => {}, {
         mes: btn.dataset.mesNuevo,
-        monto: cobroExistente?.montoAlquiler ?? cobroExistente?.monto ?? montoActual,
+        monto: esParcial ? cobroExistente.saldoPendiente : (cobroExistente?.montoAlquiler ?? cobroExistente?.monto ?? montoActual),
         cobroId: cobroExistente?.id || null,
       });
+    });
+  });
+  el.querySelectorAll('[data-adelanto]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAdelantoForm(a, btn.dataset.adelanto, () => {});
     });
   });
 
@@ -885,7 +907,9 @@ function generarMeses(a) {
     // registro parcial de cobro atrás — evita que un contrato se vea distinto de otro
     // solo porque a uno se le había pre-cargado el mes y al otro no.
     let tipo;
-    if (cobro?.pagado) {
+    if (cobro?.pagado && cobro.saldoPendiente > 0) {
+      tipo = 'parcial'; // se cobró algo de este mes, pero todavía queda un saldo por cobrar
+    } else if (cobro?.pagado) {
       tipo = 'pagado';
     } else if (esFuturo) {
       tipo = 'futuro';
@@ -906,6 +930,7 @@ function renderMesCobro(m, a) {
 
   const configs = {
     pagado:    { bg: 'color-mix(in srgb,var(--success) 8%,transparent)',  border: 'color-mix(in srgb,var(--success) 25%,transparent)', dot: 'var(--success)',      icon: '✓' },
+    parcial:   { bg: 'color-mix(in srgb,var(--info) 8%,transparent)',      border: 'color-mix(in srgb,var(--info) 40%,transparent)',    dot: 'var(--info)',         icon: '½' },
     sin_cobro: { bg: 'color-mix(in srgb,var(--warning) 10%,transparent)',  border: 'color-mix(in srgb,var(--warning) 50%,transparent)', dot: 'var(--warning)',      icon: '?' },
     futuro:    { bg: 'var(--surface-2)',                                    border: 'var(--border)',                                      dot: 'var(--text-faint)',   icon: '·' },
   };
@@ -928,14 +953,16 @@ function renderMesCobro(m, a) {
       <div style="font-weight:600;font-size:.9rem">${label}</div>
       <div style="font-size:.76rem;color:var(--text-soft)">
         ${tipo === 'pagado'    ? `Cobrado el ${fmtFechaCorta(cobro.fechaPago)}` : ''}
+        ${tipo === 'parcial'   ? `Abonó ${fmtMoneda(cobro.montoAlquiler, a.moneda)} de ${fmtMoneda(cobro.montoEsperado, a.moneda)} el ${fmtFechaCorta(cobro.fechaPago)}` : ''}
         ${tipo === 'sin_cobro' ? 'Sin registrar' : ''}
         ${tipo === 'futuro'    ? 'Mes futuro' : ''}
       </div>
     </div>
 
     <!-- Monto -->
-    <div style="font-size:1rem;font-weight:700;white-space:nowrap;color:${tipo==='pagado'?'var(--success)':tipo==='futuro'?'var(--text-faint)':'inherit'}">
-      ${cobro?.monto ? fmtMoneda(cobro.monto, a.moneda) : tipo !== 'futuro' ? fmtMoneda(a.montoActual ?? a.montoInicial, a.moneda) : '—'}
+    <div style="font-size:1rem;font-weight:700;white-space:nowrap;color:${tipo==='pagado'?'var(--success)':tipo==='parcial'?'var(--info)':tipo==='futuro'?'var(--text-faint)':'inherit'}">
+      ${tipo === 'parcial' ? `Debe ${fmtMoneda(cobro.saldoPendiente, a.moneda)}`
+        : cobro?.monto ? fmtMoneda(cobro.monto, a.moneda) : tipo !== 'futuro' ? fmtMoneda(a.montoActual ?? a.montoInicial, a.moneda) : '—'}
     </div>
 
     <!-- Acción -->
@@ -945,12 +972,20 @@ function renderMesCobro(m, a) {
            <button class="btn btn-xs btn-ghost" data-print-liq="${key}" title="Imprimir liquidación">${icon('download')} Liquid.</button>
            <button class="btn btn-xs btn-ghost" data-cob-deshacer="${cobro.id}" title="Deshacer cobro (por error)" style="color:var(--danger)">${icon('refresh')} Deshacer</button>
          </div>`
+      : tipo === 'parcial'
+        ? `<div style="display:flex;gap:.4rem;flex-shrink:0;align-items:center">
+             <button class="btn btn-sm" data-mes-nuevo="${key}" data-cobro-id="${cobro.id}" style="background:var(--info);color:#fff;border:none">Completar</button>
+             <button class="btn btn-xs btn-ghost" data-cob-deshacer="${cobro.id}" title="Deshacer todo lo cobrado de este mes" style="color:var(--danger)">${icon('refresh')}</button>
+           </div>`
       : tipo === 'sin_cobro'
         ? `<div style="display:flex;gap:.4rem;flex-shrink:0;align-items:center">
              <button class="btn btn-sm" data-mes-nuevo="${key}" data-cobro-id="${cobro?.id || ''}" style="background:var(--warning);color:#fff;border:none">Registrar</button>
              ${cobro ? `<button class="btn btn-xs btn-ghost" data-cob-deshacer="${cobro.id}" title="Quitar este registro" style="color:var(--danger)">${icon('trash')}</button>` : ''}
            </div>`
-        : `<span class="badge badge-neutral" style="flex-shrink:0">Pendiente</span>`}
+        : `<div style="display:flex;gap:.4rem;flex-shrink:0;align-items:center">
+             <span class="badge badge-neutral">Pendiente</span>
+             <button class="btn btn-xs btn-ghost" data-adelanto="${key}" title="Registrar adelanto de pago desde este mes">${icon('wallet')} Adelanto</button>
+           </div>`}
   </div>`;
 }
 

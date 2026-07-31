@@ -5,6 +5,7 @@ import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
 import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen } from '../lib.js';
+import { imprimirRecibo, imprimirReciboAdelanto, imprimirContrato } from '../imprimir.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
@@ -988,6 +989,67 @@ export function openAlquilerForm(alq = null, onDone, formOpts = {}) {
         else if (ed) { resultado = await actions.updateAlquiler(alq.id, data); toast('Contrato actualizado'); }
         else { resultado = await actions.createAlquiler(data); toast('Contrato creado correctamente'); }
         ctx.close(); onDone?.(resultado);
+        // Al crear un contrato nuevo (o renovarlo), ofrecemos imprimir los ejemplares
+        // de una — evita tener que volver a buscar el contrato para hacerlo después.
+        if (!ed && resultado) openEntregaContratoForm(resultado, () => {});
+      });
+    }
+  });
+}
+
+/* ============================================================
+   ENTREGA DE EJEMPLARES DEL CONTRATO — quién se lleva cada copia
+   impresa (inquilino, propietario, inmobiliaria, etc.), y queda
+   registrado en el contrato para saber quién tiene qué.
+   ============================================================ */
+export function openEntregaContratoForm(alq, onDone) {
+  const { clientes, propietarios, propiedades } = getState();
+  const inquilino   = clientes.find(c => c.id === alq.inquilinoId);
+  const propietario = (propietarios || []).find(p => p.id === alq.propietarioId);
+  const propiedad   = propiedades.find(p => p.id === alq.propiedadId);
+  const garantes    = garantesDeAlquiler(alq);
+
+  openModal({
+    title: 'Imprimir ejemplares del contrato',
+    bodyHTML: `
+      <div class="form-grid">
+        <p class="text-soft full" style="font-size:.85rem;margin:0 0 .3rem">Elegí quién se lleva cada ejemplar — se imprime un original por cada uno y queda registrado en el contrato.</p>
+        <div class="form-group full" style="display:flex;flex-direction:column;gap:.55rem">
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:600">
+            <input type="checkbox" name="destInquilino" checked style="width:16px;height:16px;cursor:pointer">
+            Inquilino${inquilino?.nombre ? ` (${esc(inquilino.nombre)})` : ''}
+          </label>
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:600">
+            <input type="checkbox" name="destPropietario" checked style="width:16px;height:16px;cursor:pointer">
+            Propietario / Locador${propietario?.nombre ? ` (${esc(propietario.nombre)})` : ''}
+          </label>
+          <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:600">
+            <input type="checkbox" name="destInmobiliaria" checked style="width:16px;height:16px;cursor:pointer">
+            Inmobiliaria
+          </label>
+        </div>
+        <div class="form-group full"><label>Otro destinatario (opcional)</label>
+          <input name="otroDestinatario" placeholder="Ej: Garante, Escribanía..."></div>
+        <div class="form-group full"><label>Notas</label>
+          <input name="nota" placeholder="Observaciones opcionales"></div>
+      </div>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Ahora no</button><button class="btn btn-primary" id="saveEntrega">${icon('file')} Imprimir ejemplares</button>`,
+    onMount(ctx) {
+      const ov = ctx.overlay;
+      $('#saveEntrega', ov).addEventListener('click', async () => {
+        const destinatarios = [];
+        if (ov.querySelector('[name="destInquilino"]').checked)    destinatarios.push('Inquilino');
+        if (ov.querySelector('[name="destPropietario"]').checked)  destinatarios.push('Propietario');
+        if (ov.querySelector('[name="destInmobiliaria"]').checked) destinatarios.push('Inmobiliaria');
+        const otro = ov.querySelector('[name="otroDestinatario"]').value.trim();
+        if (otro) destinatarios.push(otro);
+        if (!destinatarios.length) { toast('Elegí al menos un destinatario', { tipo: 'warning' }); return; }
+        const nota = ov.querySelector('[name="nota"]').value || null;
+
+        imprimirContrato({ alq, inquilino, propiedad, propietario, garantes, destinatarios });
+        await actions.registrarEntregaContrato(alq.id, { destinatarios, nota });
+        toast(`${destinatarios.length} ejemplar${destinatarios.length !== 1 ? 'es' : ''} impreso${destinatarios.length !== 1 ? 's' : ''}`);
+        ctx.close(); onDone?.();
       });
     }
   });
@@ -1022,7 +1084,12 @@ export function openCobroForm(alq, onDone, prefill = {}) {
   const hoy = new Date();
   const mesActual = prefill.mes || `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
   const montoSugerido = prefill.montoAlquiler ?? prefill.monto ?? alq.montoActual ?? alq.montoInicial ?? '';
+  // Lo que corresponde cubrir en este registro (el saldo pendiente, si viene de un pago parcial
+  // anterior, o el alquiler completo del mes si es la primera vez). Si lo que se tipea en "Monto
+  // alquiler" es menor a esto, queda un saldo pendiente que se puede completar después.
+  const montoEsperado = Number(montoSugerido) || 0;
   const editCobroId = prefill.cobroId || null;
+  const cobroExistente = editCobroId ? (alq.cobros || []).find(c => c.id === editCobroId) : null;
   const pctMora = Number(alq.pctMora) || 0;
 
   const METODOS = [
@@ -1044,8 +1111,9 @@ export function openCobroForm(alq, onDone, prefill = {}) {
             <input name="mes" type="month" value="${mesActual}" required>
           </div>
           <div class="form-group">
-            <label>Monto alquiler $</label>
+            <label>Monto alquiler $${montoEsperado ? ` <span class="text-soft" style="font-weight:400">(corresponde ${fmtMontoInput(montoEsperado)})</span>` : ''}</label>
             <input name="monto" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(montoSugerido)}" style="font-size:1.1rem;font-weight:700">
+            <div id="saldoHint" class="text-xs" style="margin-top:.3rem"></div>
           </div>
           <div class="form-group">
             <label>Fecha de pago</label>
@@ -1127,10 +1195,23 @@ export function openCobroForm(alq, onDone, prefill = {}) {
 
       // El % y el monto de mora se calculan solos, pero quedan editables por si se
       // quiere ajustar o condonar el recargo para un cobro puntual.
+      const actualizarSaldoHint = (rentaBase) => {
+        const hint = ov.querySelector('#saldoHint');
+        if (!hint) return;
+        const saldo = Math.round((montoEsperado - rentaBase) * 100) / 100;
+        if (montoEsperado > 0 && saldo > 0) {
+          hint.style.color = 'var(--warning)';
+          hint.textContent = `Queda un saldo pendiente de ${fmtMontoInput(saldo)} — el mes va a figurar como "Parcial" y vas a poder completarlo después.`;
+        } else {
+          hint.textContent = '';
+        }
+      };
+
       const actualizarMora = () => {
         const f = $('#cobroForm', ov);
         const dias = pctMora > 0 ? calcularDiasMora(f.mes.value, f.fechaPago.value) : 0;
         const rentaBase = valorMonto(f.monto.value) || 0;
+        actualizarSaldoHint(rentaBase);
         const pctUsado = Number(inputMoraPct.value) || 0;
         const montoCalculado = (dias > 0 && pctUsado > 0) ? Math.round(rentaBase * pctUsado / 100 * dias) : 0;
         if (!moraMontoManual) inputMoraMonto.value = montoCalculado > 0 ? fmtMontoInput(montoCalculado) : '';
@@ -1254,10 +1335,24 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           ? pagosValidos.map(p => p.metodoPago).join(' + ')
           : pagosValidos[0].metodoPago;
 
+        // Si lo que se tipeó es menos de lo que corresponde a este mes, queda un saldo pendiente:
+        // el mes no se cierra como pagado del todo, y ese resto se va a poder completar después
+        // (con su propia mora si se termina pagando fuera de término).
+        const saldoPendiente = Math.max(0, Math.round((montoEsperado - rentaBase) * 100) / 100);
+        const esParcial = montoEsperado > 0 && saldoPendiente > 0 && f.pagado.checked;
+        // Si ya venía un pago parcial de antes (pagado:true), lo cobrado ahora se SUMA a lo que ya
+        // había entrado (para que "Total cobrado" del contrato no pierda el primer abono), y el
+        // "corresponde" del mes se mantiene fijo en el alquiler original (no en el saldo restante).
+        const yaVeniaPagado = !!cobroExistente?.pagado;
+        const montoEsperadoMes = yaVeniaPagado ? (cobroExistente.montoEsperado ?? montoEsperado) : (montoEsperado || rentaBase);
+
         const cobro = {
           mes:            f.mes.value,
-          monto:          totalConMora,
-          montoAlquiler:  rentaBase,
+          monto:          (yaVeniaPagado ? (cobroExistente.monto || 0) : 0) + totalConMora,
+          montoAlquiler:  (yaVeniaPagado ? (cobroExistente.montoAlquiler || 0) : 0) + rentaBase,
+          montoEsperado:  montoEsperadoMes,
+          saldoPendiente,
+          parcial:        esParcial,
           fechaPago:      f.fechaPago.value || null,
           pagado:         f.pagado.checked,
           imputarAlMes:   f.imputarAlMes.checked,
@@ -1278,9 +1373,154 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           if (montoComision > 0) cobro.comisionInicialMonto = montoComision;
         }
 
-        if (editCobroId) await actions.updateCobro(alq.id, editCobroId, cobro);
+        // Un mes con saldo pendiente de una vez anterior (pagado:true, saldoPendiente>0) necesita
+        // un movimiento de caja nuevo por este abono — updateCobro solo lo crea la primera vez que
+        // el mes pasa a pagado, así que para un abono siguiente hay que usar registrarAbonoCobro.
+        const completaUnParcialAnterior = editCobroId && cobroExistente?.pagado && cobroExistente?.saldoPendiente > 0;
+        if (completaUnParcialAnterior) await actions.registrarAbonoCobro(alq.id, editCobroId, cobro);
+        else if (editCobroId) await actions.updateCobro(alq.id, editCobroId, cobro);
         else await actions.addCobro(alq.id, cobro);
-        toast('Cobro registrado'); ctx.close(); onDone?.();
+
+        if (esParcial) {
+          toast(`Pago parcial registrado — queda un saldo de ${fmtMontoInput(saldoPendiente)}`, { tipo: 'warning', duracion: 6000 });
+          // El recibo de este abono se imprime ahora porque el registro se va a actualizar con el
+          // próximo pago (y ahí se perdería el detalle de este monto puntual si no quedó impreso).
+          imprimirRecibo({
+            alq, cobro,
+            inquilino: getState().clientes.find(c => c.id === alq.inquilinoId),
+            propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
+            propietario: getState().propietarios.find(p => p.id === alq.propietarioId),
+          });
+        } else {
+          toast('Cobro registrado');
+        }
+        ctx.close(); onDone?.();
+      });
+    }
+  });
+}
+
+/* ============================================================
+   ADELANTO DE PAGO — el inquilino paga varios meses de una sola vez
+   (ej. un local que paga el contrato completo por adelantado). Registra
+   un cobro "pagado" por cada mes cubierto y emite un único recibo que
+   detalla todos los meses juntos.
+   ============================================================ */
+export function openAdelantoForm(alq, mesInicial, onDone) {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const montoSugerido = alq.montoActual ?? alq.montoInicial ?? '';
+
+  const METODOS = [
+    { id: 'Efectivo',      icon: '💵' },
+    { id: 'Transferencia', icon: '🏦' },
+    { id: 'Cheque',        icon: '📄' },
+    { id: 'Débito',        icon: '💳' },
+    { id: 'Otro',          icon: '📝' },
+  ];
+
+  const sumarMeses = (mes, n) => {
+    const [y, m] = mes.split('-').map(Number);
+    const d = new Date(y, (m - 1) + n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  openModal({
+    title: 'Adelanto de pago',
+    bodyHTML: `
+      <form id="adelantoForm" class="form-grid">
+        <p class="text-soft full" style="font-size:.85rem;margin:0 0 .3rem">Registrá varios meses pagados juntos (por ejemplo, todo el contrato adelantado) y se emite un único recibo con el detalle mes por mes.</p>
+        <div class="form-group"><label>Desde el mes <span class="req">*</span></label>
+          <input name="desde" type="month" value="${mesInicial}" required></div>
+        <div class="form-group"><label>Cantidad de meses <span class="req">*</span></label>
+          <input name="cantidad" type="number" min="1" max="24" value="6" required></div>
+        <div class="form-group"><label>Monto mensual $</label>
+          <input name="montoMensual" type="text" inputmode="numeric" class="input-monto" value="${fmtMontoInput(montoSugerido)}" style="font-size:1.05rem;font-weight:700"></div>
+        <div class="form-group"><label>Fecha de pago</label>
+          <input name="fechaPago" type="date" value="${hoy}"></div>
+        <div class="form-group"><label>Forma de pago</label>
+          <select name="metodoPago">${METODOS.map(m => `<option value="${m.id}">${m.icon} ${m.id}</option>`).join('')}</select></div>
+        <div class="form-group" id="refBlk" style="display:none"><label>Referencia</label>
+          <input name="referencia" placeholder="Ej: 0000234 · Banco Nación"></div>
+        <div class="form-group full"><label>Notas</label>
+          <input name="nota" placeholder="Ej: pago adelantado de todo el contrato"></div>
+        <div class="form-group full" id="previewAdelanto" style="background:var(--surface-2);border-radius:var(--r-md);padding:.75rem 1rem;font-size:.82rem;line-height:1.6"></div>
+      </form>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveAdelanto">${icon('wallet')} Registrar adelanto</button>`,
+    onMount(ctx) {
+      const ov = ctx.overlay;
+      const f = $('#adelantoForm', ov);
+
+      const mostrarRef = () => { ov.querySelector('#refBlk').style.display = ['Transferencia', 'Cheque'].includes(f.metodoPago.value) ? '' : 'none'; };
+      f.metodoPago.addEventListener('change', mostrarRef);
+      mostrarRef();
+
+      const actualizarPreview = () => {
+        const desde = f.desde.value;
+        const cantidad = Math.max(1, Number(f.cantidad.value) || 0);
+        const montoMensual = valorMonto(f.montoMensual.value) || 0;
+        const prev = ov.querySelector('#previewAdelanto');
+        if (!desde || !cantidad) { prev.innerHTML = ''; return; }
+
+        const cobrosExistentes = alq.cobros || [];
+        const metaMeses = Array.from({ length: cantidad }, (_, i) => sumarMeses(desde, i));
+        const yaPagados = metaMeses.filter(m => cobrosExistentes.find(c => c.mes === m)?.pagado);
+        const aRegistrar = metaMeses.filter(m => !yaPagados.includes(m));
+        const total = aRegistrar.length * montoMensual;
+
+        prev.innerHTML = `
+          <div><strong>${aRegistrar.length}</strong> mes${aRegistrar.length !== 1 ? 'es' : ''} a registrar como pagado${aRegistrar.length !== 1 ? 's' : ''} (${mesLabelCorta(metaMeses[0])} a ${mesLabelCorta(metaMeses.at(-1))}) · Total: <strong>${fmtMontoInput(total)}</strong></div>
+          ${yaPagados.length ? `<div style="color:var(--warning);margin-top:.2rem">⚠ ${yaPagados.length} de esos meses ya estaban pagados y no se van a duplicar.</div>` : ''}`;
+      };
+      function mesLabelCorta(mes) {
+        if (!mes) return '—';
+        const [y, m] = mes.split('-');
+        const n = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        return `${n[+m - 1]} ${y}`;
+      }
+      ['desde', 'cantidad', 'montoMensual'].forEach(name => f[name].addEventListener('input', actualizarPreview));
+      actualizarPreview();
+
+      $('#saveAdelanto', ov).addEventListener('click', async () => {
+        const desde = f.desde.value;
+        const cantidad = Math.max(1, Number(f.cantidad.value) || 0);
+        const montoMensual = valorMonto(f.montoMensual.value) || 0;
+        if (!desde) { toast('Indicá desde qué mes empieza el adelanto', { tipo: 'warning' }); return; }
+        if (!montoMensual) { toast('Indicá el monto mensual', { tipo: 'warning' }); return; }
+
+        const metaMeses = Array.from({ length: cantidad }, (_, i) => sumarMeses(desde, i));
+        const cobrosExistentes = alq.cobros || [];
+        const yaPagados = metaMeses.filter(m => cobrosExistentes.find(c => c.mes === m)?.pagado);
+        const meses = metaMeses.filter(m => !yaPagados.includes(m));
+        if (!meses.length) { toast('Todos esos meses ya estaban pagados', { tipo: 'warning' }); return; }
+
+        const adelantoId = `adel_${Date.now()}`;
+        const referencia = f.referencia.value || null;
+        const nota = f.nota.value || null;
+
+        for (const mes of meses) {
+          const existente = cobrosExistentes.find(c => c.mes === mes);
+          const data = {
+            mes, monto: montoMensual, montoAlquiler: montoMensual,
+            fechaPago: f.fechaPago.value || hoy, pagado: true, imputarAlMes: false,
+            metodoPago: f.metodoPago.value, referencia, nota, adelantoId,
+          };
+          if (existente) await actions.updateCobro(alq.id, existente.id, data);
+          else await actions.addCobro(alq.id, data);
+        }
+
+        toast(`Adelanto registrado: ${meses.length} mes${meses.length !== 1 ? 'es' : ''}`);
+        ctx.close();
+
+        const alqFresco = getState().alquileres.find(x => x.id === alq.id);
+        const cobrosAdelanto = (alqFresco?.cobros || []).filter(c => c.adelantoId === adelantoId);
+        imprimirReciboAdelanto({
+          alq: alqFresco,
+          cobros: cobrosAdelanto,
+          inquilino: getState().clientes.find(c => c.id === alq.inquilinoId),
+          propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
+          propietario: getState().propietarios.find(p => p.id === alq.propietarioId),
+        });
+        onDone?.();
       });
     }
   });

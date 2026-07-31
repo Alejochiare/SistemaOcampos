@@ -7,6 +7,7 @@ const KEY_NUM_REC  = 'inmocrm_num_recibo';
 const KEY_NUM_LIQ  = 'inmocrm_num_liquidacion';
 const KEY_NUM_DEUDA = 'inmocrm_num_deuda';
 const KEY_NUM_INFORME_VENTA = 'inmocrm_num_informe_captacion';
+const KEY_NUM_CONTRATO = 'inmocrm_num_contrato';
 
 /* ── Agencia config ──────────────────────────────────────── */
 export function getAgencia() {
@@ -172,6 +173,10 @@ const CSS_PRINT = `
 /* ── Abrir ventana de impresión ──────────────────────────── */
 function abrirVentana(titulo, cuerpo) {
   const win = window.open('', '_blank', 'width=850,height=700');
+  if (!win) {
+    alert('El navegador bloqueó la ventana del documento. Permití las ventanas emergentes para este sitio y volvé a intentar.');
+    return;
+  }
   win.document.write(`<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -334,6 +339,181 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
   `);
+}
+
+/* ============================================================
+   RECIBO DE ADELANTO (inquilino paga varios meses juntos de una vez)
+   Un solo recibo que detalla, mes por mes, todas las cuotas cubiertas.
+   ============================================================ */
+export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, propietario }) {
+  const ag  = getAgencia();
+  const num = fmtDocNum(nextNum(KEY_NUM_REC));
+  const lista = [...cobros].sort((a, b) => (a.mes || '').localeCompare(b.mes || ''));
+  const fecha = lista[0]?.fechaPago || new Date().toISOString().slice(0, 10);
+  const total = lista.reduce((s, c) => s + (Number(c.monto) || 0), 0);
+  const primerPago = alq.fechaInicio && alq.fechaFin && lista[0]?.mes ? numPago(alq, lista[0].mes) : null;
+  const ultimoPago  = alq.fechaInicio && alq.fechaFin && lista.at(-1)?.mes ? numPago(alq, lista.at(-1).mes) : null;
+  const notaComun = lista.find(c => c.nota)?.nota || null;
+  const metodoComun = lista[0]?.metodoPago || 'Efectivo';
+  const referenciaComun = lista[0]?.referencia || null;
+
+  const dniInq = alq.inquilinoDni || inquilino?.dni || '';
+  const telInq = alq.inquilinoTelefono || inquilino?.telefono || '';
+  const domInq = alq.inquilinoDomicilio || inquilino?.domicilio || inquilino?.direccion || '';
+
+  const copia = (tipoCop) => `
+  <div class="copia">
+    ${headerDoc(ag, 'RECIBO', num, fecha)}
+
+    <div class="banda-concepto">
+      ADELANTO DE ALQUILER — ${lista.length} MESES — COBRO POR CUENTA Y ORDEN DE TERCEROS
+    </div>
+
+    <!-- Datos del inquilino -->
+    <div class="cliente-blk">
+      <div class="dato-fld"><span class="lbl">Sr.\Sra.:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
+      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div></div>'}
+      ${domInq ? `<div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Domicilio:</span> ${esc(domInq)}</div>` : ''}
+      ${telInq ? `<div class="dato-fld"><span class="lbl">Teléfono:</span> ${esc(telInq)}</div>` : ''}
+      <div class="dato-fld"><span class="lbl">Condición IVA:</span> Consumidor Final</div>
+    </div>
+
+    <!-- Datos del contrato -->
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Detalle del contrato</div>
+      <div class="contrato-grid">
+        <div class="contrato-row"><span class="lbl">Concepto:</span> <strong>ADELANTO DE ALQUILER</strong></div>
+        ${primerPago ? `<div class="contrato-row"><span class="lbl">Cuotas N°:</span> <strong>${primerPago.actual} a ${ultimoPago?.actual ?? primerPago.actual} de ${primerPago.total}</strong></div>` : '<div></div>'}
+        <div class="contrato-row" style="grid-column:1/-1"><span class="lbl">Inmueble:</span> <strong>${esc(propiedad?.direccion || '—')}${propiedad?.ciudad ? ' — ' + esc(propiedad.ciudad) : ''}</strong></div>
+        <div class="contrato-row"><span class="lbl">Período cubierto:</span> <strong>${mesLabel(lista[0]?.mes)} a ${mesLabel(lista.at(-1)?.mes)}</strong></div>
+        <div class="contrato-row"><span class="lbl">Propietario:</span> ${esc(propietario?.nombre || '—')}</div>
+      </div>
+    </div>
+
+    <!-- Tabla importe: una fila por mes cubierto -->
+    <table class="tabla">
+      <thead><tr>
+        <th>Descripción</th>
+        <th>Inmueble</th>
+        <th class="right">Importe</th>
+      </tr></thead>
+      <tbody>
+      ${lista.map(c => `
+      <tr>
+        <td>Alquiler mensual — ${mesLabel(c.mes)}</td>
+        <td>${esc(propiedad?.direccion || '—')}</td>
+        <td class="right">${fmtMoneda(c.monto)}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>
+
+    <div class="totales">
+      <div class="total-row grand">
+        <div class="total-label">TOTAL RECIBIDO:</div>
+        <div class="total-val">${fmtMoneda(total)}</div>
+      </div>
+    </div>
+
+    <!-- Letras y forma de pago -->
+    <div class="letras-blk">
+      <div>
+        <div><span class="lbl">Son pesos:</span> <strong>${enLetras(total)}</strong></div>
+        ${notaComun ? `<div style="margin-top:2px"><span class="lbl">Observaciones:</span> ${esc(notaComun)}</div>` : ''}
+      </div>
+      <div style="text-align:right;flex-shrink:0;padding-left:12px">
+        <div><span class="lbl">Forma de pago:</span> <strong>${esc(metodoComun)}</strong></div>
+        ${referenciaComun ? `<div style="margin-top:2px"><span class="lbl">Ref.:</span> ${esc(referenciaComun)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="firma-blk">
+      <div class="firma-linea">Firma y aclaración</div>
+      <div class="copia-label">— ${tipoCop} —</div>
+    </div>
+  </div>`;
+
+  abrirVentana('Recibo de Adelanto', `
+    ${copia('ORIGINAL')}
+    <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
+    ${copia('DUPLICADO')}
+  `);
+}
+
+/* ============================================================
+   CONTRATO DE LOCACIÓN — ejemplares para entregar (inquilino,
+   propietario, inmobiliaria, etc.). Un "copia" por destinatario,
+   con los datos del contrato y renglones de firma.
+   ============================================================ */
+export function imprimirContrato({ alq, inquilino, propiedad, propietario, garantes = [], destinatarios = [] }) {
+  const ag  = getAgencia();
+  const num = fmtDocNum(nextNum(KEY_NUM_CONTRATO));
+  const fecha = alq.fechaFirma || alq.fechaInicio || new Date().toISOString().slice(0, 10);
+
+  const fila = (label, val) => val ? `<div class="contrato-row"><span class="lbl">${esc(label)}:</span> <strong>${esc(String(val))}</strong></div>` : '';
+
+  const copia = (destinatario, idx, total) => `
+  <div class="copia">
+    ${headerDoc(ag, 'CONTRATO DE LOCACIÓN', num, fecha)}
+
+    <div class="banda-concepto">
+      EJEMPLAR PARA: ${esc(destinatario.toUpperCase())}${total > 1 ? ` — copia ${idx + 1} de ${total}` : ''}
+    </div>
+
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Inmueble locado</div>
+      <div class="contrato-grid">
+        ${fila('Dirección', propiedad?.direccion)}
+        ${fila('Ciudad', propiedad?.ciudad)}
+        ${fila('Barrio', propiedad?.barrio)}
+        ${fila('Tipo', propiedad?.tipo)}
+      </div>
+    </div>
+
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Condiciones del contrato</div>
+      <div class="contrato-grid">
+        ${fila('Fecha de firma', alq.fechaFirma ? fmtFecha(alq.fechaFirma) : null)}
+        ${fila('Inicio', fmtFecha(alq.fechaInicio))}
+        ${fila('Vencimiento', fmtFecha(alq.fechaFin))}
+        ${fila('Monto inicial', alq.montoInicial ? fmtMoneda(alq.montoInicial, alq.moneda) : null)}
+        ${fila('Depósito', alq.deposito ? fmtMoneda(alq.deposito, alq.moneda) : null)}
+        ${fila('Comisión', alq.comision ? `${alq.comision}%` : null)}
+        ${fila('Ajuste', alq.tipoAjuste && alq.frecuenciaAjuste ? `${alq.tipoAjuste} · cada ${alq.frecuenciaAjuste} meses` : null)}
+      </div>
+    </div>
+
+    <div class="cliente-blk">
+      <div class="dato-fld"><span class="lbl">Locador:</span> <strong>${esc(propietario?.nombre || '—')}</strong></div>
+      <div class="dato-fld"><span class="lbl">Locatario:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
+      ${alq.inquilinoDni || inquilino?.dni ? `<div class="dato-fld"><span class="lbl">DNI locatario:</span> ${esc(alq.inquilinoDni || inquilino.dni)}</div>` : '<div></div>'}
+      ${propietario?.telefono ? `<div class="dato-fld"><span class="lbl">Tel. locador:</span> ${esc(propietario.telefono)}</div>` : ''}
+    </div>
+
+    ${garantes.length ? `
+    <div class="contrato-blk">
+      <div class="contrato-titulo">Garante${garantes.length > 1 ? 's' : ''}</div>
+      ${garantes.map((g, i) => `
+      <div class="contrato-grid" style="${i < garantes.length - 1 ? 'margin-bottom:6px' : ''}">
+        ${fila('Nombre', g.nombre)}
+        ${fila('DNI', g.dni)}
+        ${fila('Teléfono', g.telefono)}
+        ${fila('Domicilio', g.domicilio)}
+      </div>`).join('')}
+    </div>` : ''}
+
+    <div class="firma-blk" style="justify-content:space-around;gap:12px">
+      <div class="firma-linea">Locador</div>
+      <div class="firma-linea">Locatario</div>
+      ${garantes.length ? `<div class="firma-linea">Garante</div>` : ''}
+    </div>
+    <div style="text-align:right;margin-top:4px"><span class="copia-label">Ejemplar: ${esc(destinatario)}</span></div>
+  </div>`;
+
+  const cuerpo = destinatarios
+    .map((d, i) => copia(d, i, destinatarios.length))
+    .join(`<div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>`);
+
+  abrirVentana('Contrato de Locación', cuerpo);
 }
 
 /* ============================================================
