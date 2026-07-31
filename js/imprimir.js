@@ -440,80 +440,63 @@ export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, prop
 }
 
 /* ============================================================
-   CONTRATO DE LOCACIÓN — ejemplares para entregar (inquilino,
-   propietario, inmobiliaria, etc.). Un "copia" por destinatario,
-   con los datos del contrato y renglones de firma.
+   CONSTANCIA DE ENTREGA DE EJEMPLAR DEL CONTRATO — no es una copia
+   del contrato en sí, es un recibo/constancia que deja asentado que
+   tal persona recibió tal día un ejemplar, con un resumen de las
+   condiciones (precio, ajuste, vencimiento) y un renglón para que
+   lo firme quien lo recibe. Un "copia" firmable por destinatario.
    ============================================================ */
-export function imprimirContrato({ alq, inquilino, propiedad, propietario, garantes = [], destinatarios = [] }) {
+export function imprimirEntregaContrato({ alq, inquilino, propiedad, propietario, destinatarios = [], fecha, nota }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_CONTRATO));
-  const fecha = alq.fechaFirma || alq.fechaInicio || new Date().toISOString().slice(0, 10);
+  const fechaDoc = fecha || new Date().toISOString().slice(0, 10);
 
   const fila = (label, val) => val ? `<div class="contrato-row"><span class="lbl">${esc(label)}:</span> <strong>${esc(String(val))}</strong></div>` : '';
+  const dirLabel = propiedad ? `${propiedad.direccion || '—'}${propiedad.ciudad ? ', ' + propiedad.ciudad : ''}` : '—';
 
-  const copia = (destinatario, idx, total) => `
+  const copia = (destinatario) => `
   <div class="copia">
-    ${headerDoc(ag, 'CONTRATO DE LOCACIÓN', num, fecha)}
+    ${headerDoc(ag, 'RECIBO', num, fechaDoc)}
 
     <div class="banda-concepto">
-      EJEMPLAR PARA: ${esc(destinatario.toUpperCase())}${total > 1 ? ` — copia ${idx + 1} de ${total}` : ''}
+      CONSTANCIA DE ENTREGA DE EJEMPLAR DEL CONTRATO
     </div>
 
-    <div class="contrato-blk">
-      <div class="contrato-titulo">Inmueble locado</div>
-      <div class="contrato-grid">
-        ${fila('Dirección', propiedad?.direccion)}
-        ${fila('Ciudad', propiedad?.ciudad)}
-        ${fila('Barrio', propiedad?.barrio)}
-        ${fila('Tipo', propiedad?.tipo)}
+    <div class="cliente-blk">
+      <div class="dato-fld" style="grid-column:1/-1">
+        Se deja constancia de que en el día de la fecha se hizo entrega a <strong>${esc(destinatario)}</strong>
+        de un (1) ejemplar del contrato de locación correspondiente al inmueble sito en <strong>${esc(dirLabel)}</strong>,
+        cuyas condiciones se detallan a continuación.
       </div>
     </div>
 
     <div class="contrato-blk">
       <div class="contrato-titulo">Condiciones del contrato</div>
       <div class="contrato-grid">
-        ${fila('Fecha de firma', alq.fechaFirma ? fmtFecha(alq.fechaFirma) : null)}
+        ${fila('Locador', propietario?.nombre)}
+        ${fila('Locatario', inquilino?.nombre)}
         ${fila('Inicio', fmtFecha(alq.fechaInicio))}
         ${fila('Vencimiento', fmtFecha(alq.fechaFin))}
         ${fila('Monto inicial', alq.montoInicial ? fmtMoneda(alq.montoInicial, alq.moneda) : null)}
+        ${fila('Monto actual', alq.montoActual ? fmtMoneda(alq.montoActual, alq.moneda) : null)}
         ${fila('Depósito', alq.deposito ? fmtMoneda(alq.deposito, alq.moneda) : null)}
-        ${fila('Comisión', alq.comision ? `${alq.comision}%` : null)}
         ${fila('Ajuste', alq.tipoAjuste && alq.frecuenciaAjuste ? `${alq.tipoAjuste} · cada ${alq.frecuenciaAjuste} meses` : null)}
       </div>
     </div>
 
-    <div class="cliente-blk">
-      <div class="dato-fld"><span class="lbl">Locador:</span> <strong>${esc(propietario?.nombre || '—')}</strong></div>
-      <div class="dato-fld"><span class="lbl">Locatario:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
-      ${alq.inquilinoDni || inquilino?.dni ? `<div class="dato-fld"><span class="lbl">DNI locatario:</span> ${esc(alq.inquilinoDni || inquilino.dni)}</div>` : '<div></div>'}
-      ${propietario?.telefono ? `<div class="dato-fld"><span class="lbl">Tel. locador:</span> ${esc(propietario.telefono)}</div>` : ''}
-    </div>
+    ${nota ? `<div style="font-size:10px;margin-top:6px"><span class="lbl">Observaciones:</span> ${esc(nota)}</div>` : ''}
 
-    ${garantes.length ? `
-    <div class="contrato-blk">
-      <div class="contrato-titulo">Garante${garantes.length > 1 ? 's' : ''}</div>
-      ${garantes.map((g, i) => `
-      <div class="contrato-grid" style="${i < garantes.length - 1 ? 'margin-bottom:6px' : ''}">
-        ${fila('Nombre', g.nombre)}
-        ${fila('DNI', g.dni)}
-        ${fila('Teléfono', g.telefono)}
-        ${fila('Domicilio', g.domicilio)}
-      </div>`).join('')}
-    </div>` : ''}
-
-    <div class="firma-blk" style="justify-content:space-around;gap:12px">
-      <div class="firma-linea">Locador</div>
-      <div class="firma-linea">Locatario</div>
-      ${garantes.length ? `<div class="firma-linea">Garante</div>` : ''}
+    <div class="firma-blk" style="justify-content:space-around;gap:12px;margin-top:22px">
+      <div class="firma-linea">Firma de quien recibe<br>(${esc(destinatario)})</div>
+      <div class="firma-linea">Firma y sello<br>${esc(ag.nombre || 'Inmobiliaria')}</div>
     </div>
-    <div style="text-align:right;margin-top:4px"><span class="copia-label">Ejemplar: ${esc(destinatario)}</span></div>
   </div>`;
 
   const cuerpo = destinatarios
-    .map((d, i) => copia(d, i, destinatarios.length))
+    .map(d => copia(d))
     .join(`<div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>`);
 
-  abrirVentana('Contrato de Locación', cuerpo);
+  abrirVentana('Constancia de Entrega de Contrato', cuerpo);
 }
 
 /* ============================================================

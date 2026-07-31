@@ -888,16 +888,16 @@ function generarMeses(a) {
   if (!a.fechaInicio) return [];
   const hoy   = new Date();
   const inicio = parseFechaLocal(a.fechaInicio);
-  const fin    = a.fechaFin ? parseFechaLocal(a.fechaFin) : hoy;
-  const hasta  = hoy < fin ? hoy : fin; // no mostrar meses futuros más allá de hoy+3
-  const hastaConFuturos = new Date(Math.min(fin.getTime(), new Date(hoy.getFullYear(), hoy.getMonth()+2, 1).getTime()));
+  // Se muestra el contrato completo (no solo unos meses para adelante) para que se pueda
+  // registrar un Adelanto de pago sobre cualquier mes, sin importar qué tan lejos esté.
+  const fin = a.fechaFin ? parseFechaLocal(a.fechaFin) : new Date(hoy.getFullYear(), hoy.getMonth() + 2, 1);
 
   const meses = [];
   const cobrosPorMes = {};
   (a.cobros || []).forEach(c => { cobrosPorMes[c.mes] = c; });
 
   let cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
-  const limite = new Date(hastaConFuturos.getFullYear(), hastaConFuturos.getMonth(), 1);
+  const limite = new Date(fin.getFullYear(), fin.getMonth(), 1);
 
   while (cur <= limite) {
     const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;

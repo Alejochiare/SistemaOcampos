@@ -5,7 +5,7 @@ import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
 import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen } from '../lib.js';
-import { imprimirRecibo, imprimirReciboAdelanto, imprimirContrato } from '../imprimir.js';
+import { imprimirRecibo, imprimirReciboAdelanto, imprimirEntregaContrato } from '../imprimir.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
@@ -1007,13 +1007,13 @@ export function openEntregaContratoForm(alq, onDone) {
   const inquilino   = clientes.find(c => c.id === alq.inquilinoId);
   const propietario = (propietarios || []).find(p => p.id === alq.propietarioId);
   const propiedad   = propiedades.find(p => p.id === alq.propiedadId);
-  const garantes    = garantesDeAlquiler(alq);
+  const hoy = new Date().toISOString().slice(0, 10);
 
   openModal({
-    title: 'Imprimir ejemplares del contrato',
+    title: 'Entregar ejemplar del contrato',
     bodyHTML: `
       <div class="form-grid">
-        <p class="text-soft full" style="font-size:.85rem;margin:0 0 .3rem">Elegí quién se lleva cada ejemplar — se imprime un original por cada uno y queda registrado en el contrato.</p>
+        <p class="text-soft full" style="font-size:.85rem;margin:0 0 .3rem">Elegí a quién le entregás una copia. Se imprime, por cada uno, una constancia de entrega (con las condiciones del contrato) para que la firme al recibirla — y queda registrado en el contrato quién tiene qué.</p>
         <div class="form-group full" style="display:flex;flex-direction:column;gap:.55rem">
           <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-weight:600">
             <input type="checkbox" name="destInquilino" checked style="width:16px;height:16px;cursor:pointer">
@@ -1030,10 +1030,12 @@ export function openEntregaContratoForm(alq, onDone) {
         </div>
         <div class="form-group full"><label>Otro destinatario (opcional)</label>
           <input name="otroDestinatario" placeholder="Ej: Garante, Escribanía..."></div>
+        <div class="form-group"><label>Fecha de entrega</label>
+          <input name="fechaEntrega" type="date" value="${hoy}"></div>
         <div class="form-group full"><label>Notas</label>
           <input name="nota" placeholder="Observaciones opcionales"></div>
       </div>`,
-    footerHTML: `<button class="btn btn-ghost" data-close>Ahora no</button><button class="btn btn-primary" id="saveEntrega">${icon('file')} Imprimir ejemplares</button>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Ahora no</button><button class="btn btn-primary" id="saveEntrega">${icon('file')} Imprimir constancia</button>`,
     onMount(ctx) {
       const ov = ctx.overlay;
       $('#saveEntrega', ov).addEventListener('click', async () => {
@@ -1044,11 +1046,12 @@ export function openEntregaContratoForm(alq, onDone) {
         const otro = ov.querySelector('[name="otroDestinatario"]').value.trim();
         if (otro) destinatarios.push(otro);
         if (!destinatarios.length) { toast('Elegí al menos un destinatario', { tipo: 'warning' }); return; }
+        const fecha = ov.querySelector('[name="fechaEntrega"]').value || hoy;
         const nota = ov.querySelector('[name="nota"]').value || null;
 
-        imprimirContrato({ alq, inquilino, propiedad, propietario, garantes, destinatarios });
-        await actions.registrarEntregaContrato(alq.id, { destinatarios, nota });
-        toast(`${destinatarios.length} ejemplar${destinatarios.length !== 1 ? 'es' : ''} impreso${destinatarios.length !== 1 ? 's' : ''}`);
+        imprimirEntregaContrato({ alq, inquilino, propiedad, propietario, destinatarios, fecha, nota });
+        await actions.registrarEntregaContrato(alq.id, { fecha, destinatarios, nota });
+        toast(`${destinatarios.length} constancia${destinatarios.length !== 1 ? 's' : ''} impresa${destinatarios.length !== 1 ? 's' : ''}`);
         ctx.close(); onDone?.();
       });
     }
