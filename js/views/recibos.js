@@ -5,8 +5,8 @@
    ============================================================ */
 import { getState } from '../store.js';
 import { icon, MONEDAS } from '../config.js';
-import { esc, valorMonto } from '../lib.js';
-import { imprimirReciboGeneral } from '../imprimir.js';
+import { esc, valorMonto, waLink, compartirArchivoPorWhatsApp } from '../lib.js';
+import { imprimirReciboGeneral, generarPDFReciboGeneral } from '../imprimir.js';
 import { toast } from '../components/toast.js';
 
 const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Cheque', 'Débito', 'Otro'];
@@ -72,8 +72,9 @@ function pintar(el) {
               <textarea name="nota" rows="2" placeholder="Notas adicionales para el recibo..."></textarea></div>
           </div>
 
-          <div style="margin-top:1.5rem;display:flex;gap:.75rem">
+          <div style="margin-top:1.5rem;display:flex;gap:.75rem;flex-wrap:wrap">
             <button type="submit" class="btn btn-primary" id="btnGenerarRecibo">${icon('file')} Generar recibo (original y duplicado)</button>
+            <button type="button" class="btn btn-ghost" id="btnEnviarWA" style="color:var(--success)">${icon('whatsapp')} Enviar por WhatsApp</button>
             <button type="button" class="btn btn-ghost" id="btnLimpiar">Limpiar</button>
           </div>
         </form>
@@ -120,15 +121,14 @@ function pintar(el) {
   searchInp.addEventListener('focus', () => { if (searchInp.value) mostrarResultados(searchInp.value); });
   searchInp.addEventListener('blur', () => setTimeout(() => { drop.style.display = 'none'; }, 150));
 
-  /* ---- Generar recibo ---- */
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    if (!form.nombre.value.trim()) { form.nombre.focus(); toast('Ingresá el nombre de la persona', { tipo: 'warning' }); return; }
-    if (!form.concepto.value.trim()) { form.concepto.focus(); toast('Ingresá el concepto del recibo', { tipo: 'warning' }); return; }
+  /* ---- Arma los datos del recibo a partir del form, validando lo mínimo ---- */
+  function datosRecibo() {
+    if (!form.nombre.value.trim()) { form.nombre.focus(); toast('Ingresá el nombre de la persona', { tipo: 'warning' }); return null; }
+    if (!form.concepto.value.trim()) { form.concepto.focus(); toast('Ingresá el concepto del recibo', { tipo: 'warning' }); return null; }
     const monto = valorMonto(form.monto.value);
-    if (!monto) { form.monto.focus(); toast('Ingresá un monto válido', { tipo: 'warning' }); return; }
+    if (!monto) { form.monto.focus(); toast('Ingresá un monto válido', { tipo: 'warning' }); return null; }
 
-    imprimirReciboGeneral({
+    return {
       persona: {
         nombre: form.nombre.value.trim(),
         dni: form.dni.value.trim(),
@@ -142,8 +142,34 @@ function pintar(el) {
       formaPago: form.formaPago.value,
       referencia: form.referencia.value.trim(),
       nota: form.nota.value.trim(),
-    });
+    };
+  }
+
+  /* ---- Generar recibo (imprimir / PDF) ---- */
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const datos = datosRecibo();
+    if (!datos) return;
+    imprimirReciboGeneral(datos);
     toast('Recibo generado');
+  });
+
+  /* ---- Enviar el recibo (PDF completo, no un mensaje) por WhatsApp ---- */
+  el.querySelector('#btnEnviarWA').addEventListener('click', async () => {
+    const datos = datosRecibo();
+    if (!datos) return;
+    const tel = datos.persona.telefono;
+    if (!tel) { form.telefono.focus(); toast('Cargá el teléfono de la persona para enviar por WhatsApp', { tipo: 'warning' }); return; }
+    const texto = `Hola${datos.persona.nombre ? ' ' + datos.persona.nombre : ''}! Te comparto el recibo de "${datos.concepto}".`;
+    try {
+      const blob = await generarPDFReciboGeneral(datos, 'recibo.pdf');
+      await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo.pdf' });
+      toast('Recibo enviado');
+    } catch (err) {
+      console.error('Error generando o compartiendo el recibo:', err);
+      toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+      window.open(waLink(tel, texto), '_blank');
+    }
   });
 
   el.querySelector('#btnLimpiar').addEventListener('click', () => {

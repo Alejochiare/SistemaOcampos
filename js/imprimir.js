@@ -102,44 +102,59 @@ function numPago(alq, mes) {
   return { actual: Math.max(1, actual), total };
 }
 
+/* Prefija cada selector de un bloque de CSS con un ancestro (ej. "#id") — se usa para poder
+   inyectar temporalmente el CSS de impresión en el documento principal de la app sin que
+   ninguna regla "se escape" y afecte por accidente algo fuera de ese contenedor. No soporta
+   @media/@page (CSS_PRINT_REST no los usa). */
+function scopeCss(css, scope) {
+  const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  return sinComentarios.replace(/([^{}]+)\{/g, (m, selectores) =>
+    selectores.split(',').map(s => `${scope} ${s.trim()}`).join(', ') + ' {');
+}
+
 /* ── CSS compartido para impresión ──────────────────────── */
-const CSS_PRINT = `
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; background: #fff; }
+/* El reset (*, body) va separado del resto porque para exportar a PDF/WhatsApp lo inyectamos
+   directo en el documento principal (ver generarPDFBlobDesdeHTML) — un iframe aparte resultó
+   poco confiable para que html2canvas lea el <style>, así que ahí el reset se aplica scoped
+   a un contenedor propio en vez de a "*"/"body" globales, para no romper el resto de la app. */
+const CSS_PRINT_REST = `
   .pagina { width: 210mm; margin: 0 auto; padding: 8mm; }
   .copia { border: 1px solid #999; border-radius: 2px; padding: 12px 16px; margin-bottom: 8px; }
   .separador { text-align: center; font-size: 10px; color: #aaa; margin: 6px 0; letter-spacing: 3px; }
 
-  /* Header */
-  .doc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #111; }
+  /* Header — con display:table en vez de flex: html2canvas (usado para exportar a PDF y
+     mandar por WhatsApp) no soporta bien flexbox/grid y los renderiza como texto plano sin
+     ningún layout, así que todo este bloque usa table/float/inline-block, que sí soporta. */
+  .doc-header { display: table; width: 100%; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid #111; }
+  .doc-header > * { display: table-cell; vertical-align: top; }
   .doc-logo { height: 46px; width: auto; max-width: 160px; object-fit: contain; display: block; margin-bottom: 3px; }
   .agencia-logo { font-size: 20px; font-weight: 900; color: #111; letter-spacing: -0.5px; }
   .agencia-sub  { font-size: 9px; color: #666; margin-top: 2px; }
   .agencia-info { font-size: 9px; color: #666; line-height: 1.5; margin-top: 4px; }
 
-  .doc-tipo-bloque { text-align: right; }
+  .doc-tipo-bloque { display: table-cell; vertical-align: top; text-align: right; width: 170px; }
   .doc-tipo  { font-size: 22px; font-weight: 900; letter-spacing: 2px; color: #111; }
   .doc-num   { font-size: 13px; font-weight: 700; margin-top: 3px; }
   .doc-fecha { font-size: 10px; color: #444; margin-top: 2px; }
   .doc-cuit  { font-size: 9px; color: #666; margin-top: 2px; }
 
   /* Sello discreto */
-  .sello { border: 1px solid #bbb; border-radius: 2px; padding: 3px 7px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 18px; flex-shrink: 0; }
+  .sello { border: 1px solid #bbb; border-radius: 2px; padding: 3px 7px; text-align: center; margin: 0 18px; white-space: nowrap; }
   .sello-txt { font-size: 6.5px; color: #888; text-align: center; line-height: 1.5; letter-spacing: .2px; }
 
   /* Banda de concepto */
   .banda-concepto { background: #f4f4f4; border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 4px 8px; font-size: 9px; font-weight: 700; color: #333; margin: 8px 0; letter-spacing: .5px; }
 
-  /* Datos cliente */
-  .cliente-blk { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; margin: 8px 0; font-size: 10px; }
-  .dato-fld { display: flex; gap: 4px; align-items: baseline; }
-  .lbl { color: #777; font-size: 9px; white-space: nowrap; }
+  /* Datos cliente — columnas por flotado en vez de grid */
+  .cliente-blk { margin: 8px 0; font-size: 10px; overflow: hidden; }
+  .dato-fld, .cliente-col { float: left; width: 50%; box-sizing: border-box; padding-right: 10px; margin-bottom: 4px; }
+  .lbl, .label-fld { color: #777; font-size: 9px; white-space: nowrap; margin-right: 3px; }
 
   /* Bloque contrato */
-  .contrato-blk { border: 1px solid #ccc; padding: 6px 10px; margin: 8px 0; font-size: 10px; }
+  .contrato-blk { border: 1px solid #ccc; padding: 6px 10px; margin: 8px 0; font-size: 10px; overflow: hidden; }
   .contrato-titulo { font-weight: 700; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; margin-bottom: 5px; color: #333; }
-  .contrato-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; }
-  .contrato-row  { display: flex; gap: 4px; align-items: baseline; }
+  .contrato-grid { overflow: hidden; }
+  .contrato-row  { float: left; width: 50%; box-sizing: border-box; padding-right: 10px; margin-bottom: 3px; }
 
   /* Tabla detalle */
   .tabla { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10px; }
@@ -148,26 +163,45 @@ const CSS_PRINT = `
   .tabla .right { text-align: right; font-weight: 700; }
 
   /* Totales */
-  .totales { margin: 6px 0 5px; }
-  .total-row { display: flex; justify-content: flex-end; gap: 24px; font-size: 10px; padding: 2px 0; }
+  .totales { margin: 6px 0 5px; overflow: hidden; }
+  .total-row { text-align: right; font-size: 10px; padding: 2px 0; overflow: hidden; }
   .total-row.grand { font-size: 13px; font-weight: 900; border-top: 2px solid #111; padding-top: 5px; margin-top: 3px; }
-  .total-label { min-width: 140px; text-align: right; }
-  .total-val   { min-width: 100px; text-align: right; }
+  .total-label { display: inline-block; vertical-align: top; min-width: 140px; text-align: right; }
+  .total-val   { display: inline-block; vertical-align: top; min-width: 100px; text-align: right; margin-left: 24px; }
 
   /* Letras + forma pago */
-  .letras-blk { display: flex; justify-content: space-between; align-items: flex-start; font-size: 9.5px; margin: 6px 0 4px; padding: 5px 8px; background: #f9f9f9; border: 1px solid #e8e8e8; border-radius: 2px; }
+  .letras-blk { display: table; width: 100%; font-size: 9.5px; margin: 6px 0 4px; padding: 5px 8px; background: #f9f9f9; border: 1px solid #e8e8e8; border-radius: 2px; }
+  .letras-blk > div { display: table-cell; vertical-align: top; }
 
   /* Firma */
-  .firma-blk { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 10px; padding-top: 6px; border-top: 1px solid #ccc; }
+  .firma-blk { display: table; width: 100%; margin-top: 10px; padding-top: 6px; border-top: 1px solid #ccc; }
+  .firma-blk > * { display: table-cell; vertical-align: bottom; }
   .firma-linea { border-top: 1px solid #555; width: 170px; text-align: center; padding-top: 3px; font-size: 9px; color: #444; }
-  .copia-label { font-size: 9px; font-weight: 700; color: #555; }
+  .copia-label { font-size: 9px; font-weight: 700; color: #555; text-align: right; }
+`;
 
+/* Versión completa (con reset global) para la ventana de impresión, que vive en su propio
+   documento/pestaña y no tiene riesgo de afectar el resto de la app. */
+const CSS_PRINT = `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; background: #fff; }
+  ${CSS_PRINT_REST}
   @media print {
     body { margin: 0; }
     .pagina { padding: 4mm; }
     .no-print { display: none; }
     @page { margin: 5mm; size: A4; }
   }
+`;
+
+/* Versión con TODAS las reglas prefijadas con #pdfExportRoot (en vez de "*"/"body"/".clase"
+   globales) — para inyectar temporalmente en el documento principal de la app (ver
+   generarPDFBlobDesdeHTML) sin que nada se filtre y afecte al resto de la UI mientras se
+   genera el PDF. */
+const CSS_PRINT_SCOPED = `
+  #pdfExportRoot, #pdfExportRoot * { box-sizing: border-box; margin: 0; padding: 0; }
+  #pdfExportRoot { font-family: Arial, sans-serif; font-size: 11px; color: #111; background: #fff; }
+  ${scopeCss(CSS_PRINT_REST, '#pdfExportRoot')}
 `;
 
 /* ── Abrir ventana de impresión ──────────────────────────── */
@@ -233,7 +267,7 @@ function headerDoc(ag, tipo, num, fecha) {
 /* ============================================================
    RECIBO DE PAGO (inquilino → inmobiliaria)
    ============================================================ */
-export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }) {
+function construirReciboHTML({ alq, cobro, inquilino, propiedad, propietario }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_REC));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
@@ -262,8 +296,8 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
     <!-- Datos del inquilino -->
     <div class="cliente-blk">
       <div class="dato-fld"><span class="lbl">Sr./Sra.:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
-      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div></div>'}
-      ${domInq ? `<div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Domicilio:</span> ${esc(domInq)}</div>` : ''}
+      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div class="dato-fld"></div>'}
+      ${domInq ? `<div class="dato-fld" style="width:100%"><span class="lbl">Domicilio:</span> ${esc(domInq)}</div>` : ''}
       ${telInq ? `<div class="dato-fld"><span class="lbl">Teléfono:</span> ${esc(telInq)}</div>` : ''}
       <div class="dato-fld"><span class="lbl">Condición IVA:</span> Consumidor Final</div>
     </div>
@@ -273,8 +307,8 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
       <div class="contrato-titulo">Detalle del contrato</div>
       <div class="contrato-grid">
         <div class="contrato-row"><span class="lbl">Concepto:</span> <strong>ALQUILER</strong></div>
-        ${pago ? `<div class="contrato-row"><span class="lbl">Cuota N°:</span> <strong>${pago.actual} de ${pago.total}</strong></div>` : '<div></div>'}
-        <div class="contrato-row" style="grid-column:1/-1"><span class="lbl">Inmueble:</span> <strong>${esc(propiedad?.direccion || '—')}${propiedad?.ciudad ? ' — ' + esc(propiedad.ciudad) : ''}</strong></div>
+        ${pago ? `<div class="contrato-row"><span class="lbl">Cuota N°:</span> <strong>${pago.actual} de ${pago.total}</strong></div>` : '<div class="contrato-row"></div>'}
+        <div class="contrato-row" style="width:100%"><span class="lbl">Inmueble:</span> <strong>${esc(propiedad?.direccion || '—')}${propiedad?.ciudad ? ' — ' + esc(propiedad.ciudad) : ''}</strong></div>
         <div class="contrato-row"><span class="lbl">Período:</span> <strong>${cobro.mes ? mesLabel(cobro.mes) : '—'}</strong></div>
         <div class="contrato-row"><span class="lbl">Propietario:</span> ${esc(propietario?.nombre || '—')}</div>
         <div class="contrato-row"><span class="lbl">Inicio contrato:</span> ${fmtFecha(alq.fechaInicio)}</div>
@@ -363,18 +397,26 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
     </div>
   </div>`;
 
-  abrirVentana('Recibo de Pago', `
+  return `
     ${copia('ORIGINAL')}
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
-  `);
+  `;
+}
+
+export function imprimirRecibo(params) {
+  abrirVentana('Recibo de Pago', construirReciboHTML(params));
+}
+
+export function generarPDFRecibo(params, filename = 'recibo.pdf') {
+  return generarPDFBlobDesdeHTML(construirReciboHTML(params), filename);
 }
 
 /* ============================================================
    RECIBO DE ADELANTO (inquilino paga varios meses juntos de una vez)
    Un solo recibo que detalla, mes por mes, todas las cuotas cubiertas.
    ============================================================ */
-export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, propietario }) {
+function construirReciboAdelantoHTML({ alq, cobros, inquilino, propiedad, propietario }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_REC));
   const lista = [...cobros].sort((a, b) => (a.mes || '').localeCompare(b.mes || ''));
@@ -401,8 +443,8 @@ export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, prop
     <!-- Datos del inquilino -->
     <div class="cliente-blk">
       <div class="dato-fld"><span class="lbl">Sr.\Sra.:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
-      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div></div>'}
-      ${domInq ? `<div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Domicilio:</span> ${esc(domInq)}</div>` : ''}
+      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div class="dato-fld"></div>'}
+      ${domInq ? `<div class="dato-fld" style="width:100%"><span class="lbl">Domicilio:</span> ${esc(domInq)}</div>` : ''}
       ${telInq ? `<div class="dato-fld"><span class="lbl">Teléfono:</span> ${esc(telInq)}</div>` : ''}
       <div class="dato-fld"><span class="lbl">Condición IVA:</span> Consumidor Final</div>
     </div>
@@ -412,8 +454,8 @@ export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, prop
       <div class="contrato-titulo">Detalle del contrato</div>
       <div class="contrato-grid">
         <div class="contrato-row"><span class="lbl">Concepto:</span> <strong>ADELANTO DE ALQUILER</strong></div>
-        ${primerPago ? `<div class="contrato-row"><span class="lbl">Cuotas N°:</span> <strong>${primerPago.actual} a ${ultimoPago?.actual ?? primerPago.actual} de ${primerPago.total}</strong></div>` : '<div></div>'}
-        <div class="contrato-row" style="grid-column:1/-1"><span class="lbl">Inmueble:</span> <strong>${esc(propiedad?.direccion || '—')}${propiedad?.ciudad ? ' — ' + esc(propiedad.ciudad) : ''}</strong></div>
+        ${primerPago ? `<div class="contrato-row"><span class="lbl">Cuotas N°:</span> <strong>${primerPago.actual} a ${ultimoPago?.actual ?? primerPago.actual} de ${primerPago.total}</strong></div>` : '<div class="contrato-row"></div>'}
+        <div class="contrato-row" style="width:100%"><span class="lbl">Inmueble:</span> <strong>${esc(propiedad?.direccion || '—')}${propiedad?.ciudad ? ' — ' + esc(propiedad.ciudad) : ''}</strong></div>
         <div class="contrato-row"><span class="lbl">Período cubierto:</span> <strong>${mesLabel(lista[0]?.mes)} a ${mesLabel(lista.at(-1)?.mes)}</strong></div>
         <div class="contrato-row"><span class="lbl">Propietario:</span> ${esc(propietario?.nombre || '—')}</div>
       </div>
@@ -461,11 +503,19 @@ export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, prop
     </div>
   </div>`;
 
-  abrirVentana('Recibo de Adelanto', `
+  return `
     ${copia('ORIGINAL')}
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
-  `);
+  `;
+}
+
+export function imprimirReciboAdelanto(params) {
+  abrirVentana('Recibo de Adelanto', construirReciboAdelantoHTML(params));
+}
+
+export function generarPDFReciboAdelanto(params, filename = 'recibo-adelanto.pdf') {
+  return generarPDFBlobDesdeHTML(construirReciboAdelantoHTML(params), filename);
 }
 
 /* ============================================================
@@ -475,7 +525,7 @@ export function imprimirReciboAdelanto({ alq, cobros, inquilino, propiedad, prop
    condiciones (precio, ajuste, vencimiento) y un renglón para que
    lo firme quien lo recibe. Un "copia" firmable por destinatario.
    ============================================================ */
-export function imprimirEntregaContrato({ alq, inquilino, propiedad, propietario, destinatarios = [], fecha, nota }) {
+function construirEntregaContratoHTML({ alq, inquilino, propiedad, propietario, destinatarios = [], fecha, nota }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_CONTRATO));
   const fechaDoc = fecha || new Date().toISOString().slice(0, 10);
@@ -483,16 +533,16 @@ export function imprimirEntregaContrato({ alq, inquilino, propiedad, propietario
   const fila = (label, val) => val ? `<div class="contrato-row"><span class="lbl">${esc(label)}:</span> <strong>${esc(String(val))}</strong></div>` : '';
   const dirLabel = propiedad ? `${propiedad.direccion || '—'}${propiedad.ciudad ? ', ' + propiedad.ciudad : ''}` : '—';
 
-  const copia = (destinatario) => `
+  const copia = (destinatario, tipoCop) => `
   <div class="copia">
     ${headerDoc(ag, 'RECIBO', num, fechaDoc)}
 
     <div class="banda-concepto">
-      CONSTANCIA DE ENTREGA DE EJEMPLAR DEL CONTRATO
+      CONSTANCIA DE ENTREGA DE EJEMPLAR DEL CONTRATO — ${tipoCop}
     </div>
 
     <div class="cliente-blk">
-      <div class="dato-fld" style="grid-column:1/-1">
+      <div class="dato-fld" style="width:100%">
         Se deja constancia de que en el día de la fecha se hizo entrega a <strong>${esc(destinatario)}</strong>
         de un (1) ejemplar del contrato de locación correspondiente al inmueble sito en <strong>${esc(dirLabel)}</strong>,
         cuyas condiciones se detallan a continuación.
@@ -521,11 +571,20 @@ export function imprimirEntregaContrato({ alq, inquilino, propiedad, propietario
     </div>
   </div>`;
 
-  const cuerpo = destinatarios
-    .map(d => copia(d))
+  return destinatarios
+    .map(d => `
+    ${copia(d, 'ORIGINAL')}
+    <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
+    ${copia(d, 'DUPLICADO')}`)
     .join(`<div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>`);
+}
 
-  abrirVentana('Constancia de Entrega de Contrato', cuerpo);
+export function imprimirEntregaContrato(params) {
+  abrirVentana('Constancia de Entrega de Contrato', construirEntregaContratoHTML(params));
+}
+
+export function generarPDFEntregaContrato(params, filename = 'entrega-contrato.pdf') {
+  return generarPDFBlobDesdeHTML(construirEntregaContratoHTML(params), filename);
 }
 
 /* ============================================================
@@ -536,7 +595,7 @@ export function imprimirEntregaContrato({ alq, inquilino, propiedad, propietario
    { persona: { nombre, dni, telefono, domicilio }, concepto, monto,
      moneda, fecha, formaPago, referencia, nota }
    ============================================================ */
-export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 'ARS', fecha, formaPago = 'Efectivo', referencia = '', nota = '' }) {
+function construirReciboGeneralHTML({ persona = {}, concepto, monto, moneda = 'ARS', fecha, formaPago = 'Efectivo', referencia = '', nota = '' }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_REC));
   const fechaDoc = fecha || new Date().toISOString().slice(0, 10);
@@ -553,8 +612,8 @@ export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 
     <!-- Datos de la persona -->
     <div class="cliente-blk">
       <div class="dato-fld"><span class="lbl">Sr./Sra.:</span> <strong>${esc(persona.nombre || '—')}</strong></div>
-      ${persona.dni ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(persona.dni)}</strong></div>` : '<div></div>'}
-      ${persona.domicilio ? `<div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Domicilio:</span> ${esc(persona.domicilio)}</div>` : ''}
+      ${persona.dni ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(persona.dni)}</strong></div>` : '<div class="dato-fld"></div>'}
+      ${persona.domicilio ? `<div class="dato-fld" style="width:100%"><span class="lbl">Domicilio:</span> ${esc(persona.domicilio)}</div>` : ''}
       ${persona.telefono ? `<div class="dato-fld"><span class="lbl">Teléfono:</span> ${esc(persona.telefono)}</div>` : ''}
       <div class="dato-fld"><span class="lbl">Condición IVA:</span> Consumidor Final</div>
     </div>
@@ -598,11 +657,19 @@ export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 
     </div>
   </div>`;
 
-  abrirVentana('Recibo', `
+  return `
     ${copia('ORIGINAL')}
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
-  `);
+  `;
+}
+
+export function imprimirReciboGeneral(params) {
+  abrirVentana('Recibo', construirReciboGeneralHTML(params));
+}
+
+export function generarPDFReciboGeneral(params, filename = 'recibo.pdf') {
+  return generarPDFBlobDesdeHTML(construirReciboGeneralHTML(params), filename);
 }
 
 /* ============================================================
@@ -615,7 +682,7 @@ export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 
      formaPago,
    }
    ============================================================ */
-export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario, propietarios = null,
+function construirLiquidacionHTML({ alq, cobro, inquilino, propiedad, propietario, propietarios = null,
                                       pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null, detalle = null, montoOverride = null }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
@@ -645,6 +712,10 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
   const copia = (tipoCopia) => `
   <div class="copia">
     ${headerDoc(ag, 'LIQUIDACIÓN', num, fecha)}
+
+    <div class="banda-concepto">
+      LIQUIDACIÓN A PROPIETARIO${esMultiPropietario ? 'S' : ''} — ${esc(periodo)}
+    </div>
 
     ${esMultiPropietario ? `
     <div class="cliente-blk" style="display:block">
@@ -761,11 +832,19 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
     `}
   </div>`;
 
-  abrirVentana('Liquidación', `
+  return `
     ${copia('ORIGINAL')}
     <div class="separador">– – – – – – – – – – – – – – – – – – – – – – – – – – – – – –</div>
     ${copia('DUPLICADO')}
-  `);
+  `;
+}
+
+export function imprimirLiquidacion(params) {
+  abrirVentana('Liquidación', construirLiquidacionHTML(params));
+}
+
+export function generarPDFLiquidacion(params, filename = 'liquidacion.pdf') {
+  return generarPDFBlobDesdeHTML(construirLiquidacionHTML(params), filename);
 }
 
 /* ============================================================
@@ -775,7 +854,7 @@ export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propieta
    Cada ítem puede tener su propia moneda (ej: alquiler adeudado en USD
    y una multa en ARS) — no se suman montos de monedas distintas.
    ============================================================ */
-export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, cobrosPendientes = [] }) {
+function construirFacturaDeudaHTML({ alq, inquilino, propiedad, propietario, cobrosPendientes = [] }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_DEUDA));
   const fecha = new Date().toISOString().slice(0, 10);
@@ -800,8 +879,8 @@ export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, c
 
     <div class="cliente-blk">
       <div class="dato-fld"><span class="lbl">Inquilino:</span> <strong>${esc(inquilino?.nombre || '—')}</strong></div>
-      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div></div>'}
-      <div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Inmueble:</span> ${esc(propiedad?.direccion || '—')}</div>
+      ${dniInq ? `<div class="dato-fld"><span class="lbl">DNI:</span> <strong>${esc(dniInq)}</strong></div>` : '<div class="dato-fld"></div>'}
+      <div class="dato-fld" style="width:100%"><span class="lbl">Inmueble:</span> ${esc(propiedad?.direccion || '—')}</div>
       <div class="dato-fld"><span class="lbl">Propietario:</span> ${esc(propietario?.nombre || '—')}</div>
       <div class="dato-fld"><span class="lbl">Contrato:</span> ${fmtFecha(alq.fechaInicio)} — ${fmtFecha(alq.fechaFin)}</div>
     </div>
@@ -842,11 +921,19 @@ export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, c
     </div>
   </div>`;
 
-  abrirVentana('Deuda pendiente', `
+  return `
     ${copia('ORIGINAL')}
     <div class="separador">· · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ·</div>
     ${copia('DUPLICADO')}
-  `);
+  `;
+}
+
+export function imprimirFacturaDeuda(params) {
+  abrirVentana('Deuda pendiente', construirFacturaDeudaHTML(params));
+}
+
+export function generarPDFFacturaDeuda(params, filename = 'deuda.pdf') {
+  return generarPDFBlobDesdeHTML(construirFacturaDeudaHTML(params), filename);
 }
 
 /* ============================================================
@@ -859,7 +946,7 @@ export function imprimirFacturaDeuda({ alq, inquilino, propiedad, propietario, c
        indice: { score, color }, recomendaciones: [...]
    } }
    ============================================================ */
-export function imprimirInformeCaptacion({ captacion: c, periodoDesde, periodoHasta, stats }) {
+function construirInformeCaptacionHTML({ captacion: c, periodoDesde, periodoHasta, stats }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_INFORME_VENTA));
   const fecha = new Date().toISOString().slice(0, 10);
@@ -874,7 +961,7 @@ export function imprimirInformeCaptacion({ captacion: c, periodoDesde, periodoHa
     </div>
 
     <div class="cliente-blk">
-      <div class="dato-fld" style="grid-column:1/-1"><span class="lbl">Propiedad:</span> <strong>${esc(c.direccion || '—')}</strong>${(c.ciudad || c.localidad) ? ' — ' + esc(c.ciudad || c.localidad) : ''}</div>
+      <div class="dato-fld" style="width:100%"><span class="lbl">Propiedad:</span> <strong>${esc(c.direccion || '—')}</strong>${(c.ciudad || c.localidad) ? ' — ' + esc(c.ciudad || c.localidad) : ''}</div>
       <div class="dato-fld"><span class="lbl">Período informado:</span> ${fmtFecha(periodoDesde)} — ${fmtFecha(periodoHasta)}</div>
       <div class="dato-fld"><span class="lbl">Estado:</span> ${esc(c.estado || '—')}</div>
     </div>
@@ -909,9 +996,9 @@ export function imprimirInformeCaptacion({ captacion: c, periodoDesde, periodoHa
     </div>` : ''}
 
     <div class="totales" style="margin-top:10px">
-      <div class="total-row grand" style="justify-content:flex-start;gap:12px">
+      <div class="total-row grand" style="text-align:left">
         <div class="total-label" style="min-width:0;text-align:left">Índice de vendibilidad:</div>
-        <div class="total-val" style="min-width:0;color:${colorIndice}">${stats.indice.score}/100</div>
+        <div class="total-val" style="min-width:0;text-align:left;color:${colorIndice}">${stats.indice.score}/100</div>
       </div>
     </div>
 
@@ -927,5 +1014,58 @@ export function imprimirInformeCaptacion({ captacion: c, periodoDesde, periodoHa
     </div>
   </div>`;
 
-  abrirVentana('Informe de Comercialización', cuerpo);
+  return cuerpo;
+}
+
+export function imprimirInformeCaptacion(datos) {
+  abrirVentana('Informe de Comercialización', construirInformeCaptacionHTML(datos));
+}
+
+export function generarPDFInformeCaptacion(datos) {
+  const cuerpo = construirInformeCaptacionHTML(datos);
+  return generarPDFBlobDesdeHTML(cuerpo);
+}
+
+/** Genera el PDF de un documento como Blob real (para compartirlo, ej. por WhatsApp),
+ *  usando html2pdf.js (cargado por CDN en index.html) sobre un iframe oculto para
+ *  no mezclar los estilos de impresión con los del resto de la app. */
+/* Genera el PDF renderizando dentro del documento principal de la app (no en un iframe aparte):
+   probamos con un iframe (document.write y después srcdoc) y en ambos casos html2canvas
+   terminaba capturando el contenido sin el <style> aplicado — texto plano, sin bordes ni
+   colores. Acá el contenido y su CSS viven un instante en el propio documento (invisible,
+   fuera de pantalla), con el reset scoped a #pdfExportRoot para no afectar el resto de la
+   UI mientras se genera el PDF, y se sacan los dos apenas termina. */
+export function generarPDFBlobDesdeHTML(cuerpoHTML, filename = 'documento.pdf') {
+  return new Promise((resolve, reject) => {
+    if (typeof html2pdf === 'undefined') {
+      reject(new Error('html2pdf no está disponible (revisá la conexión a internet)'));
+      return;
+    }
+    const style = document.createElement('style');
+    style.textContent = CSS_PRINT_SCOPED;
+
+    const cont = document.createElement('div');
+    cont.id = 'pdfExportRoot';
+    cont.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;z-index:-1';
+    cont.innerHTML = `<div class="pagina">${cuerpoHTML}</div>`;
+
+    const limpiar = () => { cont.remove(); style.remove(); };
+
+    document.head.appendChild(style);
+    document.body.appendChild(cont);
+
+    setTimeout(() => {
+      html2pdf()
+        .from(cont)
+        .set({
+          margin: 5,
+          filename,
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+          html2canvas: { scale: 2, useCORS: true },
+        })
+        .outputPdf('blob')
+        .then(blob => { limpiar(); resolve(blob); })
+        .catch(err => { limpiar(); reject(err); });
+    }, 60);
+  });
 }

@@ -144,6 +144,41 @@ export function descargar(contenido, nombre, tipo = 'text/plain') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Comparte un archivo (ej. PDF de un recibo) por WhatsApp usando la Web Share API cuando está
+ *  disponible (adjunta el archivo real); si no, descarga el archivo y abre el chat de WhatsApp
+ *  con el texto como respaldo, para que se pueda adjuntar a mano. */
+export async function compartirArchivoPorWhatsApp({ numero, texto = '', archivo, nombreArchivo = 'documento.pdf', tipo = 'application/pdf' }) {
+  if (!archivo) return false;
+
+  const file = archivo instanceof File ? archivo : new File([archivo], nombreArchivo, { type: tipo });
+  const mensaje = texto || 'Te comparto el documento.';
+
+  try {
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], text: mensaje, title: 'Documento compartido' });
+        return true;
+      }
+    }
+  } catch (err) {
+    console.warn('No se pudo compartir por Web Share API:', err);
+  }
+
+  const link = waLink(numero, mensaje);
+  if (link) {
+    try {
+      descargar(archivo, nombreArchivo, tipo);
+    } catch (e) {
+      console.warn('No se pudo descargar el archivo automáticamente:', e);
+    }
+    window.open(link, '_blank', 'noopener,noreferrer');
+    return false;
+  }
+
+  descargar(archivo, nombreArchivo, tipo);
+  return false;
+}
+
 export function exportarCSV(filas, nombre = 'export.csv') {
   if (!filas.length) return;
   const cols = Object.keys(filas[0]);

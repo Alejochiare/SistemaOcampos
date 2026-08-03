@@ -4,8 +4,8 @@
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
-import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen } from '../lib.js';
-import { imprimirRecibo, imprimirReciboAdelanto, imprimirEntregaContrato } from '../imprimir.js';
+import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen, compartirArchivoPorWhatsApp } from '../lib.js';
+import { imprimirRecibo, imprimirReciboAdelanto, generarPDFReciboAdelanto, imprimirEntregaContrato, generarPDFEntregaContrato } from '../imprimir.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
   ORIGENES, TIPOS_AJUSTE, FRECUENCIAS_AJUSTE, PROP_ESTADOS,
@@ -1035,16 +1035,24 @@ export function openEntregaContratoForm(alq, onDone) {
         <div class="form-group full"><label>Notas</label>
           <input name="nota" placeholder="Observaciones opcionales"></div>
       </div>`,
-    footerHTML: `<button class="btn btn-ghost" data-close>Ahora no</button><button class="btn btn-primary" id="saveEntrega">${icon('file')} Imprimir constancia</button>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Ahora no</button>
+      <button class="btn btn-ghost" id="waEntrega" style="color:var(--success)">${icon('whatsapp')} Enviar por WhatsApp</button>
+      <button class="btn btn-primary" id="saveEntrega">${icon('file')} Imprimir constancia</button>`,
     onMount(ctx) {
       const ov = ctx.overlay;
-      $('#saveEntrega', ov).addEventListener('click', async () => {
+
+      const leerDestinatarios = () => {
         const destinatarios = [];
-        if (ov.querySelector('[name="destInquilino"]').checked)    destinatarios.push('Inquilino');
-        if (ov.querySelector('[name="destPropietario"]').checked)  destinatarios.push('Propietario');
+        if (ov.querySelector('[name="destInquilino"]').checked)    destinatarios.push('Locatario');
+        if (ov.querySelector('[name="destPropietario"]').checked)  destinatarios.push('Locador');
         if (ov.querySelector('[name="destInmobiliaria"]').checked) destinatarios.push('Inmobiliaria');
         const otro = ov.querySelector('[name="otroDestinatario"]').value.trim();
         if (otro) destinatarios.push(otro);
+        return destinatarios;
+      };
+
+      $('#saveEntrega', ov).addEventListener('click', async () => {
+        const destinatarios = leerDestinatarios();
         if (!destinatarios.length) { toast('Elegí al menos un destinatario', { tipo: 'warning' }); return; }
         const fecha = ov.querySelector('[name="fechaEntrega"]').value || hoy;
         const nota = ov.querySelector('[name="nota"]').value || null;
@@ -1053,6 +1061,25 @@ export function openEntregaContratoForm(alq, onDone) {
         await actions.registrarEntregaContrato(alq.id, { fecha, destinatarios, nota });
         toast(`${destinatarios.length} constancia${destinatarios.length !== 1 ? 's' : ''} impresa${destinatarios.length !== 1 ? 's' : ''}`);
         ctx.close(); onDone?.();
+      });
+
+      $('#waEntrega', ov).addEventListener('click', async () => {
+        const destinatarios = leerDestinatarios();
+        if (!destinatarios.length) { toast('Elegí al menos un destinatario', { tipo: 'warning' }); return; }
+        const tel = inquilino?.telefono || propietario?.telefono;
+        if (!tel) { toast('Cargá un teléfono (inquilino o propietario) para enviar por WhatsApp', { tipo: 'warning' }); return; }
+        const fecha = ov.querySelector('[name="fechaEntrega"]').value || hoy;
+        const nota = ov.querySelector('[name="nota"]').value || null;
+        const texto = `Hola! Te comparto la constancia de entrega del ejemplar del contrato de ${propiedad?.direccion || 'la propiedad'}.`;
+        try {
+          const blob = await generarPDFEntregaContrato({ alq, inquilino, propiedad, propietario, destinatarios, fecha, nota }, 'entrega-contrato.pdf');
+          await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'entrega-contrato.pdf' });
+          await actions.registrarEntregaContrato(alq.id, { fecha, destinatarios, nota });
+          toast('Constancia enviada'); ctx.close(); onDone?.();
+        } catch (err) {
+          console.error('Error generando o compartiendo la constancia:', err);
+          toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+        }
       });
     }
   });
@@ -1460,7 +1487,9 @@ export function openAdelantoForm(alq, mesInicial, onDone) {
           <input name="nota" placeholder="Ej: pago adelantado de todo el contrato"></div>
         <div class="form-group full" id="previewAdelanto" style="background:var(--surface-2);border-radius:var(--r-md);padding:.75rem 1rem;font-size:.82rem;line-height:1.6"></div>
       </form>`,
-    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button><button class="btn btn-primary" id="saveAdelanto">${icon('wallet')} Registrar adelanto</button>`,
+    footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
+      <button class="btn btn-ghost" id="waAdelanto" style="color:var(--success)">${icon('whatsapp')} Registrar y enviar por WhatsApp</button>
+      <button class="btn btn-primary" id="saveAdelanto">${icon('wallet')} Registrar adelanto</button>`,
     onMount(ctx) {
       const ov = ctx.overlay;
       const f = $('#adelantoForm', ov);
@@ -1495,18 +1524,19 @@ export function openAdelantoForm(alq, mesInicial, onDone) {
       ['desde', 'cantidad', 'montoMensual'].forEach(name => f[name].addEventListener('input', actualizarPreview));
       actualizarPreview();
 
-      $('#saveAdelanto', ov).addEventListener('click', async () => {
+      /* Valida y registra los cobros del adelanto; devuelve los datos para el recibo o null si falló. */
+      async function registrarAdelanto() {
         const desde = f.desde.value;
         const cantidad = Math.max(1, Number(f.cantidad.value) || 0);
         const montoMensual = valorMonto(f.montoMensual.value) || 0;
-        if (!desde) { toast('Indicá desde qué mes empieza el adelanto', { tipo: 'warning' }); return; }
-        if (!montoMensual) { toast('Indicá el monto mensual', { tipo: 'warning' }); return; }
+        if (!desde) { toast('Indicá desde qué mes empieza el adelanto', { tipo: 'warning' }); return null; }
+        if (!montoMensual) { toast('Indicá el monto mensual', { tipo: 'warning' }); return null; }
 
         const metaMeses = Array.from({ length: cantidad }, (_, i) => sumarMeses(desde, i));
         const cobrosExistentes = alq.cobros || [];
         const yaPagados = metaMeses.filter(m => cobrosExistentes.find(c => c.mes === m)?.pagado);
         const meses = metaMeses.filter(m => !yaPagados.includes(m));
-        if (!meses.length) { toast('Todos esos meses ya estaban pagados', { tipo: 'warning' }); return; }
+        if (!meses.length) { toast('Todos esos meses ya estaban pagados', { tipo: 'warning' }); return null; }
 
         const adelantoId = `adel_${Date.now()}`;
         const referencia = f.referencia.value || null;
@@ -1524,17 +1554,39 @@ export function openAdelantoForm(alq, mesInicial, onDone) {
         }
 
         toast(`Adelanto registrado: ${meses.length} mes${meses.length !== 1 ? 'es' : ''}`);
-        ctx.close();
 
         const alqFresco = getState().alquileres.find(x => x.id === alq.id);
-        const cobrosAdelanto = (alqFresco?.cobros || []).filter(c => c.adelantoId === adelantoId);
-        imprimirReciboAdelanto({
+        return {
           alq: alqFresco,
-          cobros: cobrosAdelanto,
+          cobros: (alqFresco?.cobros || []).filter(c => c.adelantoId === adelantoId),
           inquilino: getState().clientes.find(c => c.id === alq.inquilinoId),
           propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
           propietario: getState().propietarios.find(p => p.id === alq.propietarioId),
-        });
+        };
+      }
+
+      $('#saveAdelanto', ov).addEventListener('click', async () => {
+        const datos = await registrarAdelanto();
+        if (!datos) return;
+        ctx.close();
+        imprimirReciboAdelanto(datos);
+        onDone?.();
+      });
+
+      $('#waAdelanto', ov).addEventListener('click', async () => {
+        const tel = getState().clientes.find(c => c.id === alq.inquilinoId)?.telefono;
+        if (!tel) { toast('Cargá el teléfono del inquilino para enviar por WhatsApp', { tipo: 'warning' }); return; }
+        const datos = await registrarAdelanto();
+        if (!datos) return;
+        ctx.close();
+        const texto = `Hola${datos.inquilino?.nombre ? ' ' + datos.inquilino.nombre : ''}! Te comparto el recibo de adelanto de alquiler de ${datos.propiedad?.direccion || 'la propiedad'}.`;
+        try {
+          const blob = await generarPDFReciboAdelanto(datos, 'recibo-adelanto.pdf');
+          await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo-adelanto.pdf' });
+        } catch (err) {
+          console.error('Error generando o compartiendo el recibo de adelanto:', err);
+          toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+        }
         onDone?.();
       });
     }

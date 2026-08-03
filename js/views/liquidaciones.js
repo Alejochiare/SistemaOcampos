@@ -3,10 +3,10 @@
    ============================================================ */
 import { getState, actions, subscribe, sel } from '../store.js';
 import { icon } from '../config.js';
-import { esc, fmtMontoInput, valorMonto, debounce } from '../lib.js';
+import { esc, fmtMontoInput, valorMonto, debounce, compartirArchivoPorWhatsApp } from '../lib.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
-import { imprimirLiquidacion } from '../imprimir.js';
+import { imprimirLiquidacion, generarPDFLiquidacion } from '../imprimir.js';
 
 function fmtFecha(s) {
   if (!s) return '—';
@@ -296,6 +296,9 @@ export default function liquidaciones(root) {
     if (e.target.closest('[data-pdf]'))      { generarPDF(id); return; }
     const btnPdfOwner = e.target.closest('[data-pdf-owner]');
     if (btnPdfOwner) { generarPDF(btnPdfOwner.dataset.pdfOwner, btnPdfOwner.dataset.ownerId); return; }
+    if (e.target.closest('[data-wa]'))       { enviarWA(id); return; }
+    const btnWaOwner = e.target.closest('[data-wa-owner]');
+    if (btnWaOwner) { enviarWA(btnWaOwner.dataset.waOwner, btnWaOwner.dataset.ownerId); return; }
     if (e.target.closest('[data-eliminar]')) {
       if (confirm('¿Eliminar esta liquidación?')) {
         await actions.deleteLiquidacion(id);
@@ -582,6 +585,7 @@ function renderHistorial(historial, histFiltro) {
                 <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
                   <span>• ${esc(o.own?.nombre || '—')} — ${o.porcentaje}% · ${fmt$(o.totalPagar)}${o.formaPago ? ' · ' + esc(o.formaPago) : ''}</span>
                   <button class="btn btn-xs btn-ghost" data-pdf-owner="${l.id}" data-owner-id="${o.propietarioId}">${icon('file')} PDF individual</button>
+                  ${o.own?.telefono ? `<button class="btn btn-xs btn-ghost" style="color:var(--success)" data-wa-owner="${l.id}" data-owner-id="${o.propietarioId}" title="Enviar por WhatsApp">${icon('whatsapp')}</button>` : ''}
                 </div>`).join('')}
               </div>` : ''}
               <div style="font-size:.78rem;color:var(--text-faint);margin-top:.35rem">
@@ -591,6 +595,7 @@ function renderHistorial(historial, histFiltro) {
             </div>
             <div style="display:flex;flex-direction:column;gap:.3rem;flex-shrink:0">
               <button class="btn btn-sm btn-ghost" data-pdf="${l.id}">${icon('file')} PDF</button>
+              ${!l._owns && l._own?.telefono ? `<button class="btn btn-sm btn-ghost" style="color:var(--success)" data-wa="${l.id}" title="Enviar por WhatsApp">${icon('whatsapp')}</button>` : ''}
               <button class="btn btn-xs btn-ghost" style="color:var(--danger)" data-eliminar="${l.id}">${icon('trash')}</button>
             </div>
           </div>
@@ -621,16 +626,16 @@ function detalleDeLiquidacion(l, state) {
   return detalle.length ? detalle : null;
 }
 
-/* ── Generar PDF ──
-   Si la liquidación es de varios propietarios y se pasa `soloPropietarioId`,
-   imprime únicamente la parte de ese propietario (para poder entregarle a
-   cada uno su comprobante individual). Sin ese parámetro, imprime el
-   comprobante combinado con el reparto completo. */
-function generarPDF(id, soloPropietarioId = null) {
+/* Arma los params de imprimirLiquidacion/generarPDFLiquidacion para una liquidación ya guardada.
+   Si es de varios propietarios y se pasa `soloPropietarioId`, arma solo la parte de ese
+   propietario (para poder entregarle a cada uno su comprobante individual). Sin ese parámetro,
+   arma el comprobante combinado con el reparto completo. Devuelve también el teléfono/nombre
+   del destinatario más directo, para el envío por WhatsApp. */
+function paramsLiquidacionGuardada(id, soloPropietarioId = null) {
   const state = getState();
   const { liquidaciones: list, alquileres, clientes, propietarios, propiedades } = state;
   const l    = (list || []).find(x => x.id === id);
-  if (!l) return;
+  if (!l) return null;
   const alq  = alquileres.find(a => a.id === l.alquilerId) || {};
   const inq  = clientes.find(c => c.id === alq.inquilinoId) || {};
   const prop = propiedades.find(p => p.id === (l.propiedadId || alq.propiedadId)) || {};
@@ -643,16 +648,18 @@ function generarPDF(id, soloPropietarioId = null) {
   if (Array.isArray(l.propietarios) && l.propietarios.length) {
     if (soloPropietarioId) {
       const po = l.propietarios.find(p => p.propietarioId === soloPropietarioId);
-      if (!po) return;
+      if (!po) return null;
       const own = propietarios.find(p => p.id === po.propietarioId) || {};
-      imprimirLiquidacion({
-        alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
-        pctHonorarios: po.pagaComision ? po.comisionPct : 0, descuentos: [],
-        formaPago: po.formaPago || 'Efectivo', pagos: po.pagos || [],
-        porcentajeReparto: po.porcentaje, periodoLabel, detalle,
-        montoOverride: { totalAlquiler: po.montoBruto, honorarios: po.montoHonorarios, totalPagar: po.totalPagar },
-      });
-      return;
+      return {
+        own, prop,
+        params: {
+          alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
+          pctHonorarios: po.pagaComision ? po.comisionPct : 0, descuentos: [],
+          formaPago: po.formaPago || 'Efectivo', pagos: po.pagos || [],
+          porcentajeReparto: po.porcentaje, periodoLabel, detalle,
+          montoOverride: { totalAlquiler: po.montoBruto, honorarios: po.montoHonorarios, totalPagar: po.totalPagar },
+        },
+      };
     }
     const propietariosImpresion = l.propietarios.map(po => ({
       nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
@@ -664,15 +671,41 @@ function generarPDF(id, soloPropietarioId = null) {
       formaPago: po.formaPago,
       pagos: po.pagos || [],
     }));
-    imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: null,
-      propietarios: propietariosImpresion, descuentos: l.descuentos || [], periodoLabel, detalle });
-    return;
+    return {
+      own: null, prop,
+      params: { alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: null,
+        propietarios: propietariosImpresion, descuentos: l.descuentos || [], periodoLabel, detalle },
+    };
   }
 
   const own = propietarios.find(p => p.id === (l.propietarioId || alq.propietarioId)) || {};
-  imprimirLiquidacion({ alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
-    pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo',
-    pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto, periodoLabel, detalle });
+  return {
+    own, prop,
+    params: { alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
+      pctHonorarios: l.pctHonorarios || 0, descuentos: l.descuentos || [], formaPago: l.formaPago || 'Efectivo',
+      pagos: l.pagos || [], porcentajeReparto: l.porcentajeReparto, periodoLabel, detalle },
+  };
+}
+
+function generarPDF(id, soloPropietarioId = null) {
+  const datos = paramsLiquidacionGuardada(id, soloPropietarioId);
+  if (datos) imprimirLiquidacion(datos.params);
+}
+
+/* ── Enviar por WhatsApp (comprobante combinado o individual de un propietario) ── */
+async function enviarWA(id, soloPropietarioId = null) {
+  const datos = paramsLiquidacionGuardada(id, soloPropietarioId);
+  if (!datos) return;
+  const tel = datos.own?.telefono;
+  if (!tel) { toast('Cargá el teléfono del propietario para enviar por WhatsApp', { tipo: 'warning' }); return; }
+  const texto = `Hola${datos.own?.nombre ? ' ' + datos.own.nombre : ''}! Te comparto la liquidación de ${datos.prop?.direccion || 'tu propiedad'}.`;
+  try {
+    const blob = await generarPDFLiquidacion(datos.params, 'liquidacion.pdf');
+    await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+  } catch (err) {
+    console.error('Error generando o compartiendo la liquidación:', err);
+    toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+  }
 }
 
 /* ── Formulario liquidar GRUPAL (múltiples propiedades de un propietario) ── */
@@ -782,6 +815,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
+                 ${own.telefono ? `<button class="btn btn-ghost" id="btnGuardarWA" style="color:var(--success)">${icon('whatsapp')} Guardar y enviar por WhatsApp</button>` : ''}
                  <button class="btn btn-primary" id="btnGuardarPDF">Guardar${adelanto ? ' adelanto' : ''} y generar PDF</button>`,
     onMount(ctx) {
       const q = (s) => ctx.overlay.querySelector(s);
@@ -818,10 +852,16 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
       const renderDescs = () => {
         const block = q('#descBlk');
         block.innerHTML = (q('#liqGrupalForm')).descuentos?.map((d, i) => `
-          <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem">
-            <input type="text" placeholder="Concepto" value="${esc(d.concepto || '')}" data-desc-concepto="${i}" style="flex:1">
-            <input type="text" inputmode="numeric" class="input-monto" placeholder="Monto" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}" style="width:100px">
-            <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger)">${icon('trash')}</button>
+          <div style="display:flex;gap:.6rem;align-items:flex-end;margin-bottom:.6rem">
+            <div class="form-group" style="flex:2;margin:0">
+              <label style="font-size:.72rem">Concepto</label>
+              <input type="text" placeholder="Ej. Reparación, gasto..." value="${esc(d.concepto || '')}" data-desc-concepto="${i}">
+            </div>
+            <div class="form-group" style="flex:1;margin:0;max-width:130px">
+              <label style="font-size:.72rem">Monto $</label>
+              <input type="text" inputmode="numeric" class="input-monto" placeholder="0" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}">
+            </div>
+            <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger);flex-shrink:0;height:42px" title="Eliminar descuento">${icon('trash')}</button>
           </div>`).join('') || '';
         block.querySelectorAll('[data-desc-monto]').forEach(el => {
           el.addEventListener('input', () => {
@@ -829,6 +869,13 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
             const form = q('#liqGrupalForm');
             if (form.descuentos?.[idx]) form.descuentos[idx].monto = valorMonto(el.value);
             recalcular();
+          });
+        });
+        block.querySelectorAll('[data-desc-concepto]').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = Number(el.dataset.descConcepto);
+            const form = q('#liqGrupalForm');
+            if (form.descuentos?.[idx]) form.descuentos[idx].concepto = el.value;
           });
         });
       };
@@ -854,7 +901,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         }
       });
 
-      const guardar = async (conPDF) => {
+      const guardar = async (modo) => {
         const form = q('#liqGrupalForm');
         const totalPagar = valorMonto(q('#liqTotal').value);
 
@@ -914,8 +961,8 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
           await actions.updatePropiedad(d.prop.id, { propietarios: actualizados });
         }
 
-        if (conPDF && liq) {
-          imprimirLiquidacion({
+        if (modo !== 'none' && liq) {
+          const paramsLiq = {
             alq: {},
             cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
             inquilino: {},
@@ -931,7 +978,19 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
               periodo: d.periodos.map(p => mesLabel(p.mes)).join(', '),
               monto: d.total,
             })),
-          });
+          };
+          if (modo === 'pdf') {
+            imprimirLiquidacion(paramsLiq);
+          } else if (modo === 'wa') {
+            try {
+              const texto = `Hola${own?.nombre ? ' ' + own.nombre : ''}! Te comparto la liquidación de ${mesesLabelStr}.`;
+              const blob = await generarPDFLiquidacion(paramsLiq, 'liquidacion.pdf');
+              await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+            } catch (err) {
+              console.error('Error generando o compartiendo la liquidación:', err);
+              toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+            }
+          }
         }
 
         toast(adelanto ? 'Adelanto registrado' : 'Liquidación registrada');
@@ -939,8 +998,9 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         onDone?.();
       };
 
-      q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
-      q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
+      q('#btnSoloGuardar').addEventListener('click', () => guardar('none'));
+      q('#btnGuardarPDF').addEventListener('click', () => guardar('pdf'));
+      q('#btnGuardarWA')?.addEventListener('click', () => guardar('wa'));
 
       recalcular();
       renderDescs();
@@ -1108,16 +1168,28 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
         const block = q('#descBlk');
         const form = q('#liqCoForm');
         block.innerHTML = (form.descuentos || []).map((d, i) => `
-          <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem">
-            <input type="text" placeholder="Concepto" value="${esc(d.concepto || '')}" data-desc-concepto="${i}" style="flex:1">
-            <input type="text" inputmode="numeric" class="input-monto" placeholder="Monto" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}" style="width:100px">
-            <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger)">${icon('trash')}</button>
+          <div style="display:flex;gap:.6rem;align-items:flex-end;margin-bottom:.6rem">
+            <div class="form-group" style="flex:2;margin:0">
+              <label style="font-size:.72rem">Concepto</label>
+              <input type="text" placeholder="Ej. Reparación, gasto..." value="${esc(d.concepto || '')}" data-desc-concepto="${i}">
+            </div>
+            <div class="form-group" style="flex:1;margin:0;max-width:130px">
+              <label style="font-size:.72rem">Monto $</label>
+              <input type="text" inputmode="numeric" class="input-monto" placeholder="0" value="${fmtMontoInput(d.monto)}" data-desc-monto="${i}">
+            </div>
+            <button type="button" data-del-desc="${i}" class="btn btn-xs btn-ghost" style="color:var(--danger);flex-shrink:0;height:42px" title="Eliminar descuento">${icon('trash')}</button>
           </div>`).join('');
         block.querySelectorAll('[data-desc-monto]').forEach(el => {
           el.addEventListener('input', () => {
             const idx = Number(el.dataset.descMonto);
             if (form.descuentos?.[idx]) form.descuentos[idx].monto = valorMonto(el.value);
             recalcular();
+          });
+        });
+        block.querySelectorAll('[data-desc-concepto]').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = Number(el.dataset.descConcepto);
+            if (form.descuentos?.[idx]) form.descuentos[idx].concepto = el.value;
           });
         });
       };
@@ -1382,6 +1454,7 @@ export function abrirFormLiquidacion(pre, onDone) {
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
+                 ${!multi && own.telefono ? `<button class="btn btn-ghost" id="btnGuardarWA" style="color:var(--success)">${icon('whatsapp')} Guardar y enviar por WhatsApp</button>` : ''}
                  <button class="btn btn-primary" id="btnGuardarPDF">Guardar y generar PDF</button>`,
     onMount(ctx) {
       const q = (s) => ctx.overlay.querySelector(s);
@@ -1489,7 +1562,7 @@ export function abrirFormLiquidacion(pre, onDone) {
         q('#liqTotal').addEventListener('input', () => pagosCtl?.refrescarTotal());
       }
 
-      const guardar = async (conPDF) => {
+      const guardar = async (modo) => {
         const f = q('#liqForm');
         if (!f.fechaPago.value) { toast('Indicá la fecha de pago', { tipo: 'warning' }); return; }
 
@@ -1538,13 +1611,25 @@ export function abrirFormLiquidacion(pre, onDone) {
 
           const liq = await actions.createLiquidacion(data);
 
-          if (conPDF && liq) {
-            imprimirLiquidacion({
+          if (modo !== 'none' && liq) {
+            const paramsLiq = {
               alq, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
               inquilino: inq, propiedad: prop, propietario: own,
               pctHonorarios: liq.pctHonorarios || 0, descuentos: liq.descuentos || [],
               formaPago: liq.formaPago || 'Efectivo', pagos: liq.pagos || [],
-            });
+            };
+            if (modo === 'pdf') {
+              imprimirLiquidacion(paramsLiq);
+            } else if (modo === 'wa') {
+              try {
+                const texto = `Hola${own?.nombre ? ' ' + own.nombre : ''}! Te comparto la liquidación de ${prop?.direccion || 'la propiedad'}.`;
+                const blob = await generarPDFLiquidacion(paramsLiq, 'liquidacion.pdf');
+                await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+              } catch (err) {
+                console.error('Error generando o compartiendo la liquidación:', err);
+                toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
+              }
+            }
           }
 
           toast('Liquidación registrada');
@@ -1620,7 +1705,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           propietarios: filas.map(fl => ({ propietarioId: fl.propietarioId, porcentaje: fl.porcentaje, pagaComision: fl.pagaComision, comisionPct: fl.comisionPct })),
         });
 
-        if (conPDF && liq) {
+        if (modo === 'pdf' && liq) {
           const cobroSint = { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago };
           const pdfIndividual = q('#chkPdfIndividual')?.checked;
           if (pdfIndividual) {
@@ -1653,8 +1738,9 @@ export function abrirFormLiquidacion(pre, onDone) {
         ctx.close(); onDone?.();
       };
 
-      q('#btnSoloGuardar').addEventListener('click', () => guardar(false));
-      q('#btnGuardarPDF').addEventListener('click', () => guardar(true));
+      q('#btnSoloGuardar').addEventListener('click', () => guardar('none'));
+      q('#btnGuardarPDF').addEventListener('click', () => guardar('pdf'));
+      q('#btnGuardarWA')?.addEventListener('click', () => guardar('wa'));
     },
   });
 }
