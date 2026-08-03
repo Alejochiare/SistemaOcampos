@@ -1394,6 +1394,18 @@ export function openCobroForm(alq, onDone, prefill = {}) {
             propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
             propietario: getState().propietarios.find(p => p.id === alq.propietarioId),
           });
+        } else if (completaUnParcialAnterior) {
+          toast('Pago completado — mes saldado en su totalidad');
+          // Este pago termina de cubrir un saldo que había quedado pendiente de un abono
+          // anterior. El recibo muestra solo lo cobrado en ESTE pago (no lo acumulado del
+          // mes, que ya se recibió y se documentó en el recibo del abono previo).
+          imprimirRecibo({
+            alq,
+            cobro: { ...cobro, monto: totalConMora, montoAlquiler: rentaBase, saldoPendiente: 0, completaParcial: true },
+            inquilino: getState().clientes.find(c => c.id === alq.inquilinoId),
+            propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
+            propietario: getState().propietarios.find(p => p.id === alq.propietarioId),
+          });
         } else {
           toast('Cobro registrado');
         }

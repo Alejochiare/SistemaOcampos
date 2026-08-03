@@ -17,7 +17,21 @@ export default function clientes(root, param) {
   let interesFiltro = '';
   let tab = 'buscando';
 
-  const render = () => pintarLista(root.querySelector('#vClientes'), filtro, interesFiltro, tab);
+  const render = () => {
+    const el = root.querySelector('#vClientes');
+    const activo = el.querySelector('#buscarCliente');
+    const conFoco = !!activo && activo === document.activeElement;
+    const selStart = conFoco ? activo.selectionStart : null;
+    const selEnd = conFoco ? activo.selectionEnd : null;
+    pintarLista(el, filtro, interesFiltro, tab);
+    if (conFoco) {
+      const nuevo = el.querySelector('#buscarCliente');
+      if (nuevo) {
+        nuevo.focus();
+        nuevo.setSelectionRange(selStart, selEnd);
+      }
+    }
+  };
   render();
   const unsub = subscribe(render);
 

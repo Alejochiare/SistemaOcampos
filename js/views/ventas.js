@@ -31,7 +31,21 @@ export default function ventas(root, param) {
   let filtroEstado = '';
   let busqueda = '';
 
-  const render = () => pintarVentas(root.querySelector('#vVentas'), { tab, filtroEstado, busqueda });
+  const render = () => {
+    const el = root.querySelector('#vVentas');
+    const activo = el.querySelector('#buscarVentas');
+    const conFoco = !!activo && activo === document.activeElement;
+    const selStart = conFoco ? activo.selectionStart : null;
+    const selEnd = conFoco ? activo.selectionEnd : null;
+    pintarVentas(el, { tab, filtroEstado, busqueda });
+    if (conFoco) {
+      const nuevo = el.querySelector('#buscarVentas');
+      if (nuevo) {
+        nuevo.focus();
+        nuevo.setSelectionRange(selStart, selEnd);
+      }
+    }
+  };
   render();
   const unsub = subscribe(render);
 

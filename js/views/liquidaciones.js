@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, actions, subscribe, sel } from '../store.js';
 import { icon } from '../config.js';
-import { esc, fmtMontoInput, valorMonto } from '../lib.js';
+import { esc, fmtMontoInput, valorMonto, debounce } from '../lib.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { imprimirLiquidacion } from '../imprimir.js';
@@ -234,16 +234,33 @@ export default function liquidaciones(root) {
   root.innerHTML = `<div class="view" id="vLiq"></div>`;
   let filtro = 'pendientes'; // pendientes | historial
   let histFiltro = 'todas';  // todas | cobradas | adelantos
+  let busqueda = '';
   let pendientes = { cobrados: [], impagos: [] };
 
   const render = () => {
+    const el = root.querySelector('#vLiq');
+    const activo = el.querySelector('#buscarLiq');
+    const conFoco = !!activo && activo === document.activeElement;
+    const selStart = conFoco ? activo.selectionStart : null;
+    const selEnd = conFoco ? activo.selectionEnd : null;
     const state = getState();
     pendientes = cobrosALiquidar(state);
-    pintar(root.querySelector('#vLiq'), filtro, pendientes, histFiltro);
+    pintar(el, filtro, pendientes, histFiltro, busqueda);
+    if (conFoco) {
+      const nuevo = el.querySelector('#buscarLiq');
+      if (nuevo) {
+        nuevo.focus();
+        nuevo.setSelectionRange(selStart, selEnd);
+      }
+    }
   };
 
   render();
   const unsub = subscribe(render);
+
+  root.querySelector('#vLiq').addEventListener('input', debounce(e => {
+    if (e.target.id === 'buscarLiq') { busqueda = e.target.value.toLowerCase(); render(); }
+  }, 150));
 
   root.querySelector('#vLiq').addEventListener('click', async e => {
     const pill = e.target.closest('[data-filtro]');
@@ -277,6 +294,8 @@ export default function liquidaciones(root) {
     const id = card.dataset.liqId;
 
     if (e.target.closest('[data-pdf]'))      { generarPDF(id); return; }
+    const btnPdfOwner = e.target.closest('[data-pdf-owner]');
+    if (btnPdfOwner) { generarPDF(btnPdfOwner.dataset.pdfOwner, btnPdfOwner.dataset.ownerId); return; }
     if (e.target.closest('[data-eliminar]')) {
       if (confirm('¿Eliminar esta liquidación?')) {
         await actions.deleteLiquidacion(id);
@@ -289,7 +308,21 @@ export default function liquidaciones(root) {
   return unsub;
 }
 
-function pintar(el, filtro, pendientes, histFiltro) {
+function textoGrupo(g) {
+  if (g.esCoPropiedad) {
+    const { propietarios } = getState();
+    const nombresOwners = (g.owners || []).map(o => propietarios.find(p => p.id === o.propietarioId)?.nombre || '').join(' ');
+    return `${nombresOwners} ${g.prop?.direccion || ''} ${g.cobros.map(c => c.inq?.nombre || '').join(' ')}`.toLowerCase();
+  }
+  return `${g.own?.nombre || ''} ${g.cobros.map(c => `${c.prop?.direccion || ''} ${c.inq?.nombre || ''}`).join(' ')}`.toLowerCase();
+}
+
+function textoHistorial(l) {
+  const owners = l._owns ? l._owns.map(o => o.own?.nombre || '').join(' ') : (l._own?.nombre || '');
+  return `${owners} ${l._prop?.direccion || ''} ${l._inq?.nombre || ''}`.toLowerCase();
+}
+
+function pintar(el, filtro, pendientes, histFiltro, busqueda) {
   const state = getState();
   const { liquidaciones: list, alquileres } = state;
   const historial  = (list || []).map(l => {
@@ -316,9 +349,17 @@ function pintar(el, filtro, pendientes, histFiltro) {
     return { ...l, _alq: alq, _prop: prop, _own: own, _owns: owns, _inq: inq, _nPropsGrupal: nPropsGrupal };
   }).sort((a, b) => (b.fechaPago || '').localeCompare(a.fechaPago || ''));
 
-  const historialFiltrado = histFiltro === 'cobradas'   ? historial.filter(l => l.cobradoInquilino !== false)
-                           : histFiltro === 'adelantos'  ? historial.filter(l => l.cobradoInquilino === false)
-                           : historial;
+  let historialFiltrado = histFiltro === 'cobradas'   ? historial.filter(l => l.cobradoInquilino !== false)
+                         : histFiltro === 'adelantos'  ? historial.filter(l => l.cobradoInquilino === false)
+                         : historial;
+
+  let { cobrados, impagos } = pendientes;
+  if (busqueda) {
+    cobrados = cobrados.filter(g => textoGrupo(g).includes(busqueda));
+    impagos = impagos.filter(g => textoGrupo(g).includes(busqueda));
+    historialFiltrado = historialFiltrado.filter(l => textoHistorial(l).includes(busqueda));
+  }
+  pendientes = { cobrados, impagos };
 
   const totalCobrar   = pendientes.cobrados.reduce((s, g) => s + (g.cobros || []).reduce((s2, c) => s2 + (c.monto || 0), 0), 0);
   const totalAdelanto = pendientes.impagos.reduce((s, g) => s + (g.cobros || []).reduce((s2, c) => s2 + (c.monto || 0), 0), 0);
@@ -329,6 +370,13 @@ function pintar(el, filtro, pendientes, histFiltro) {
       <div>
         <h1 class="view-title">Liquidaciones</h1>
         <p class="view-sub">${pendientes.cobrados.length} por liquidar · ${fmt$(totalCobrar)}${pendientes.impagos.length ? ` · ${pendientes.impagos.length} adelanto${pendientes.impagos.length!==1?'s':''} posible${pendientes.impagos.length!==1?'s':''} · ${fmt$(totalAdelanto)}` : ''}</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="buscarLiq" placeholder="Buscar por propietario, propiedad o inquilino…" value="${esc(busqueda || '')}">
       </div>
     </div>
 
@@ -510,6 +558,7 @@ function renderHistorial(historial, histFiltro) {
                 ${l._owns ? `<span class="badge badge-neutral" style="font-size:.72rem">👥 Co-propiedad</span>` : ''}
                 ${esGrupal ? `<span class="badge badge-info" style="font-size:.72rem">📋 Grupal</span>` : ''}
                 ${esAdelanto ? `<span class="badge badge-info" style="font-size:.72rem">⏳ Adelanto (no cobrado al inquilino)</span>` : ''}
+                ${l.noCaja ? `<span class="badge badge-neutral" style="font-size:.72rem">🚫 No cargada a caja</span>` : ''}
                 ${l.porcentajeReparto != null && l.porcentajeReparto < 100 ? `<span class="badge badge-neutral" style="font-size:.72rem">${l.porcentajeReparto}% de la propiedad</span>` : ''}
                 ${l.meses && l.meses.length > 1
                   ? `<span class="badge badge-neutral">${mesLabel(l.meses[0])} – ${mesLabel(l.meses[l.meses.length - 1])}</span>`
@@ -528,8 +577,12 @@ function renderHistorial(historial, histFiltro) {
                 <span><span style="color:var(--text-soft)">Pagado: </span><strong style="color:var(--success)">${fmt$(l.totalPagar)}</strong></span>
               </div>
               ${l._owns ? `
-              <div style="font-size:.78rem;color:var(--text-soft);margin-top:.3rem;display:flex;flex-direction:column;gap:.15rem">
-                ${l._owns.map(o => `<div>• ${esc(o.own?.nombre || '—')} — ${o.porcentaje}% · ${fmt$(o.totalPagar)}${o.formaPago ? ' · ' + esc(o.formaPago) : ''}</div>`).join('')}
+              <div style="font-size:.78rem;color:var(--text-soft);margin-top:.3rem;display:flex;flex-direction:column;gap:.3rem">
+                ${l._owns.map(o => `
+                <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+                  <span>• ${esc(o.own?.nombre || '—')} — ${o.porcentaje}% · ${fmt$(o.totalPagar)}${o.formaPago ? ' · ' + esc(o.formaPago) : ''}</span>
+                  <button class="btn btn-xs btn-ghost" data-pdf-owner="${l.id}" data-owner-id="${o.propietarioId}">${icon('file')} PDF individual</button>
+                </div>`).join('')}
               </div>` : ''}
               <div style="font-size:.78rem;color:var(--text-faint);margin-top:.35rem">
                 ${fmtFecha(l.fechaPago)}${l._owns ? '' : ' · ' + esc(l.formaPago || 'Efectivo')}
@@ -568,8 +621,12 @@ function detalleDeLiquidacion(l, state) {
   return detalle.length ? detalle : null;
 }
 
-/* ── Generar PDF ── */
-function generarPDF(id) {
+/* ── Generar PDF ──
+   Si la liquidación es de varios propietarios y se pasa `soloPropietarioId`,
+   imprime únicamente la parte de ese propietario (para poder entregarle a
+   cada uno su comprobante individual). Sin ese parámetro, imprime el
+   comprobante combinado con el reparto completo. */
+function generarPDF(id, soloPropietarioId = null) {
   const state = getState();
   const { liquidaciones: list, alquileres, clientes, propietarios, propiedades } = state;
   const l    = (list || []).find(x => x.id === id);
@@ -584,6 +641,19 @@ function generarPDF(id) {
   const detalle = detalleDeLiquidacion(l, state);
 
   if (Array.isArray(l.propietarios) && l.propietarios.length) {
+    if (soloPropietarioId) {
+      const po = l.propietarios.find(p => p.propietarioId === soloPropietarioId);
+      if (!po) return;
+      const own = propietarios.find(p => p.id === po.propietarioId) || {};
+      imprimirLiquidacion({
+        alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: own,
+        pctHonorarios: po.pagaComision ? po.comisionPct : 0, descuentos: [],
+        formaPago: po.formaPago || 'Efectivo', pagos: po.pagos || [],
+        porcentajeReparto: po.porcentaje, periodoLabel, detalle,
+        montoOverride: { totalAlquiler: po.montoBruto, honorarios: po.montoHonorarios, totalPagar: po.totalPagar },
+      });
+      return;
+    }
     const propietariosImpresion = l.propietarios.map(po => ({
       nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
       porcentaje: po.porcentaje,
@@ -705,6 +775,10 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
             <input name="notas" placeholder="Observaciones opcionales">
           </div>
         </div>
+
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;margin-top:.25rem">
+          <input type="checkbox" id="chkNoCaja"> No cargar esta liquidación a la caja del mes
+        </label>
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
@@ -807,6 +881,7 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
         data.pagos = pagos;
         data.formaPago = pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago;
         data.cobradoInquilino = !adelanto;
+        data.noCaja = q('#chkNoCaja')?.checked || false;
 
         // Si veníamos de "adelanto", materializar los cobros placeholder (sin id) antes de guardar
         const idsLiquidados = [];
@@ -951,6 +1026,13 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
 
         <h3 class="form-section-title">Forma de pago por propietario</h3>
         <div id="pagosPorDueno" style="display:flex;flex-direction:column;gap:1rem"></div>
+
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;margin-top:1rem">
+          <input type="checkbox" id="chkPdfIndividual"> Generar un PDF individual por cada propietario (en vez de uno combinado)
+        </label>
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;margin-top:.4rem">
+          <input type="checkbox" id="chkNoCaja"> No cargar esta liquidación a la caja del mes
+        </label>
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
@@ -1140,6 +1222,7 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
           cobradoInquilino: !adelanto,
           fechaPago: f.fechaPago.value,
           notas: f.notas.value || null,
+          noCaja: q('#chkNoCaja')?.checked || false,
         };
 
         const liq = await actions.createLiquidacion(data);
@@ -1150,24 +1233,40 @@ export function abrirFormLiquidacionCoPropiedad(grupo, onDone) {
         });
 
         if (conPDF && liq) {
-          imprimirLiquidacion({
-            alq: {}, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
-            inquilino: {}, propiedad: prop, propietario: null,
-            propietarios: propietariosData.map(po => ({
-              nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
-              porcentaje: po.porcentaje, montoBruto: po.montoBruto,
-              pctHonorarios: po.pagaComision ? po.comisionPct : 0,
-              montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
-              formaPago: po.formaPago, pagos: po.pagos,
-            })),
-            descuentos: liq.descuentos || [],
-            periodoLabel: mesesLabelStr,
-            detalle: grupo.cobros.map(c => ({
-              propiedad: prop?.direccion || '—',
-              periodo: mesLabel(c.cobro.mes),
-              monto: c.monto,
-            })),
-          });
+          const cobroSint = { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago };
+          const detalleImp = grupo.cobros.map(c => ({
+            propiedad: prop?.direccion || '—',
+            periodo: mesLabel(c.cobro.mes),
+            monto: c.monto,
+          }));
+          const pdfIndividual = q('#chkPdfIndividual')?.checked;
+          if (pdfIndividual) {
+            propietariosData.forEach(po => {
+              const own = propietarios.find(p => p.id === po.propietarioId) || {};
+              imprimirLiquidacion({
+                alq: {}, cobro: cobroSint, inquilino: {}, propiedad: prop, propietario: own,
+                pctHonorarios: po.pagaComision ? po.comisionPct : 0, descuentos: [],
+                formaPago: po.formaPago, pagos: po.pagos,
+                porcentajeReparto: po.porcentaje, periodoLabel: mesesLabelStr, detalle: detalleImp,
+                montoOverride: { totalAlquiler: po.montoBruto, honorarios: po.montoHonorarios, totalPagar: po.totalPagar },
+              });
+            });
+          } else {
+            imprimirLiquidacion({
+              alq: {}, cobro: cobroSint,
+              inquilino: {}, propiedad: prop, propietario: null,
+              propietarios: propietariosData.map(po => ({
+                nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
+                porcentaje: po.porcentaje, montoBruto: po.montoBruto,
+                pctHonorarios: po.pagaComision ? po.comisionPct : 0,
+                montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
+                formaPago: po.formaPago, pagos: po.pagos,
+              })),
+              descuentos: liq.descuentos || [],
+              periodoLabel: mesesLabelStr,
+              detalle: detalleImp,
+            });
+          }
         }
 
         toast(adelanto ? 'Adelanto registrado' : 'Liquidación registrada');
@@ -1271,7 +1370,15 @@ export function abrirFormLiquidacion(pre, onDone) {
         ${multi ? `
         <h3 class="form-section-title">Forma de pago por propietario</h3>
         <div id="pagosPorDueno" style="display:flex;flex-direction:column;gap:1rem"></div>
+
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;margin-top:1rem">
+          <input type="checkbox" id="chkPdfIndividual"> Generar un PDF individual por cada propietario (en vez de uno combinado)
+        </label>
         ` : ''}
+
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;margin-top:.75rem">
+          <input type="checkbox" id="chkNoCaja"> No cargar esta liquidación a la caja del mes
+        </label>
       </form>`,
     footerHTML: `<button class="btn btn-ghost" data-close>Cancelar</button>
                  <button class="btn btn-ghost" id="btnSoloGuardar">Guardar sin PDF</button>
@@ -1421,6 +1528,7 @@ export function abrirFormLiquidacion(pre, onDone) {
             formaPago: pagos.length > 1 ? pagos.map(p => p.metodoPago).join(' + ') : pagos[0].metodoPago,
             pagos,
             notas:     f.notas.value || null,
+            noCaja:    q('#chkNoCaja')?.checked || false,
           };
 
           // Guardar % en el contrato para la próxima
@@ -1503,6 +1611,7 @@ export function abrirFormLiquidacion(pre, onDone) {
           cobradoInquilino: cobro.pagado !== false,
           fechaPago: f.fechaPago.value,
           notas: f.notas.value || null,
+          noCaja: q('#chkNoCaja')?.checked || false,
         };
         const liq = await actions.createLiquidacion(data);
 
@@ -1512,18 +1621,32 @@ export function abrirFormLiquidacion(pre, onDone) {
         });
 
         if (conPDF && liq) {
-          imprimirLiquidacion({
-            alq, cobro: { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago },
-            inquilino: inq, propiedad: prop, propietario: null,
-            propietarios: propietariosData.map(po => ({
-              nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
-              porcentaje: po.porcentaje, montoBruto: po.montoBruto,
-              pctHonorarios: po.pagaComision ? po.comisionPct : 0,
-              montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
-              formaPago: po.formaPago, pagos: po.pagos,
-            })),
-            descuentos: liq.descuentos || [],
-          });
+          const cobroSint = { monto: liq.montoAlquiler, mes: liq.mes, fechaPago: liq.fechaPago };
+          const pdfIndividual = q('#chkPdfIndividual')?.checked;
+          if (pdfIndividual) {
+            propietariosData.forEach(po => {
+              const ownInd = propietarios.find(p => p.id === po.propietarioId) || {};
+              imprimirLiquidacion({
+                alq, cobro: cobroSint, inquilino: inq, propiedad: prop, propietario: ownInd,
+                pctHonorarios: po.pagaComision ? po.comisionPct : 0, descuentos: [],
+                formaPago: po.formaPago, pagos: po.pagos, porcentajeReparto: po.porcentaje,
+                montoOverride: { totalAlquiler: po.montoBruto, honorarios: po.montoHonorarios, totalPagar: po.totalPagar },
+              });
+            });
+          } else {
+            imprimirLiquidacion({
+              alq, cobro: cobroSint,
+              inquilino: inq, propiedad: prop, propietario: null,
+              propietarios: propietariosData.map(po => ({
+                nombre: propietarios.find(p => p.id === po.propietarioId)?.nombre || '—',
+                porcentaje: po.porcentaje, montoBruto: po.montoBruto,
+                pctHonorarios: po.pagaComision ? po.comisionPct : 0,
+                montoHonorarios: po.montoHonorarios, totalPagar: po.totalPagar,
+                formaPago: po.formaPago, pagos: po.pagos,
+              })),
+              descuentos: liq.descuentos || [],
+            });
+          }
         }
 
         toast('Liquidación registrada');

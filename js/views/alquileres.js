@@ -18,7 +18,21 @@ export default function alquileres(root, param) {
   let filtro = '';
   let busqueda = '';
 
-  const render = () => pintarLista(root.querySelector('#vAlq'), filtro, busqueda);
+  const render = () => {
+    const el = root.querySelector('#vAlq');
+    const activo = el.querySelector('#buscarAlq');
+    const conFoco = !!activo && activo === document.activeElement;
+    const selStart = conFoco ? activo.selectionStart : null;
+    const selEnd = conFoco ? activo.selectionEnd : null;
+    pintarLista(el, filtro, busqueda);
+    if (conFoco) {
+      const nuevo = el.querySelector('#buscarAlq');
+      if (nuevo) {
+        nuevo.focus();
+        nuevo.setSelectionRange(selStart, selEnd);
+      }
+    }
+  };
   render();
   const unsub = subscribe(render);
 

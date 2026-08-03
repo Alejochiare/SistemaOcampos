@@ -242,6 +242,10 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
   const montoAlquiler = cobro.montoAlquiler ?? (monto - montoMora);
   const pago  = cobro.mes ? numPago(alq, cobro.mes) : null;
   const pagos = (cobro.pagos && cobro.pagos.length) ? cobro.pagos : null;
+  const saldoPendiente = Number(cobro.saldoPendiente) || 0;
+  const esPagoParcial  = saldoPendiente > 0;
+  const completaParcial = !!cobro.completaParcial;
+  const montoCorresponde = esPagoParcial ? Number(cobro.montoEsperado) || (montoAlquiler + saldoPendiente) : montoAlquiler;
 
   const dniInq = alq.inquilinoDni || inquilino?.dni || '';
   const telInq = alq.inquilinoTelefono || inquilino?.telefono || '';
@@ -278,6 +282,15 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
       </div>
     </div>
 
+    ${esPagoParcial ? `
+    <div style="padding:6px 10px;border-radius:4px;background:#fef3e2;border:1px solid #d97706;margin-bottom:10px;font-size:11px;color:#7c4a03">
+      ⚠ <strong>PAGO PARCIAL</strong> — este recibo cubre parte del alquiler del período. Queda un saldo pendiente.
+    </div>` : ''}
+    ${completaParcial ? `
+    <div style="padding:6px 10px;border-radius:4px;background:#e8f5e9;border:1px solid #2e7d32;margin-bottom:10px;font-size:11px;color:#1b5e20">
+      ✓ <strong>PAGO COMPLETADO</strong> — con este pago se saldó el mes que tenía un saldo pendiente de un abono anterior.
+    </div>` : ''}
+
     <!-- Tabla importe -->
     <table class="tabla">
       <thead><tr>
@@ -287,10 +300,21 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
       </tr></thead>
       <tbody>
       <tr>
-        <td>Alquiler mensual</td>
+        <td>Alquiler mensual${esPagoParcial ? ' (corresponde)' : ''}</td>
+        <td>${esc(propiedad?.direccion || '—')}</td>
+        <td class="right">${fmtMoneda(montoCorresponde)}</td>
+      </tr>
+      ${esPagoParcial ? `
+      <tr>
+        <td>Pagado en este recibo</td>
         <td>${esc(propiedad?.direccion || '—')}</td>
         <td class="right">${fmtMoneda(montoAlquiler)}</td>
       </tr>
+      <tr>
+        <td>Saldo pendiente (debe)</td>
+        <td>${esc(propiedad?.direccion || '—')}</td>
+        <td class="right" style="color:#dc2626;font-weight:700">${fmtMoneda(saldoPendiente)}</td>
+      </tr>` : ''}
       ${montoMora > 0 ? `
       <tr>
         <td>Recargo por mora (${cobro.pctMoraAplicado}% x ${cobro.diasMora} día${cobro.diasMora === 1 ? '' : 's'})</td>
@@ -305,6 +329,11 @@ export function imprimirRecibo({ alq, cobro, inquilino, propiedad, propietario }
         <div class="total-label">TOTAL RECIBIDO:</div>
         <div class="total-val">${fmtMoneda(monto)}</div>
       </div>
+      ${esPagoParcial ? `
+      <div class="total-row" style="color:#dc2626;font-weight:700">
+        <div class="total-label">SALDO PENDIENTE:</div>
+        <div class="total-val">${fmtMoneda(saldoPendiente)}</div>
+      </div>` : ''}
     </div>
 
     <!-- Letras y forma de pago -->
@@ -587,22 +616,28 @@ export function imprimirReciboGeneral({ persona = {}, concepto, monto, moneda = 
    }
    ============================================================ */
 export function imprimirLiquidacion({ alq, cobro, inquilino, propiedad, propietario, propietarios = null,
-                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null, detalle = null }) {
+                                      pctHonorarios = 0, descuentos = [], formaPago = 'Efectivo', pagos = [], porcentajeReparto = null, periodoLabel = null, detalle = null, montoOverride = null }) {
   const ag  = getAgencia();
   const num = fmtDocNum(nextNum(KEY_NUM_LIQ));
   const fecha = cobro.fechaPago || new Date().toISOString().slice(0, 10);
   const tieneDetalle  = Array.isArray(detalle) && detalle.length > 0;
-  const totalAlquiler = tieneDetalle
-    ? detalle.reduce((s, d) => s + (Number(d.monto) || 0), 0)
-    : (cobro.monto || alq.montoActual || alq.montoInicial || 0);
+  const totalAlquiler = montoOverride
+    ? montoOverride.totalAlquiler
+    : tieneDetalle
+      ? detalle.reduce((s, d) => s + (Number(d.monto) || 0), 0)
+      : (cobro.monto || alq.montoActual || alq.montoInicial || 0);
   const esMultiPropietario = Array.isArray(propietarios) && propietarios.length > 0;
-  const honorarios    = esMultiPropietario
-    ? propietarios.reduce((s, p) => s + (Number(p.montoHonorarios) || 0), 0)
-    : Math.round(totalAlquiler * pctHonorarios / 100);
+  const honorarios    = montoOverride
+    ? montoOverride.honorarios
+    : esMultiPropietario
+      ? propietarios.reduce((s, p) => s + (Number(p.montoHonorarios) || 0), 0)
+      : Math.round(totalAlquiler * pctHonorarios / 100);
   const totalDesc     = descuentos.reduce((s, d) => s + (Number(d.monto) || 0), 0);
-  const totalPagar    = esMultiPropietario
-    ? propietarios.reduce((s, p) => s + (Number(p.totalPagar) || 0), 0)
-    : totalAlquiler - honorarios - totalDesc;
+  const totalPagar    = montoOverride
+    ? montoOverride.totalPagar
+    : esMultiPropietario
+      ? propietarios.reduce((s, p) => s + (Number(p.totalPagar) || 0), 0)
+      : totalAlquiler - honorarios - totalDesc;
   const pago          = cobro.mes ? numPago(alq, cobro.mes) : null;
   const periodo        = periodoLabel || (cobro.mes ? mesLabel(cobro.mes)
                           : (tieneDetalle ? `${detalle.length} período${detalle.length > 1 ? 's' : ''}` : '—'));

@@ -572,7 +572,10 @@ export const api = {
     const prop = _db.propiedades.find(x => x.id === l.propiedadId) || {};
     const periodoLbl = l.mes || (l.meses && l.meses.length ? (l.meses.length > 1 ? `${l.meses[0]} a ${l.meses[l.meses.length - 1]}` : l.meses[0]) : '');
     let movs = [];
-    if (Array.isArray(l.propietarios) && l.propietarios.length) {
+    if (l.noCaja) {
+      // El usuario pidió no cargar esta liquidación a la caja del mes (ej. pago ya
+      // registrado por otra vía, o gestionado fuera del flujo de caja diaria).
+    } else if (Array.isArray(l.propietarios) && l.propietarios.length) {
       // Liquidación con varios dueños (co-propiedad): un movimiento de caja por dueño,
       // cada uno con su propia forma de pago.
       l.propietarios.forEach(po => {
