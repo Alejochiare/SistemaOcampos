@@ -355,6 +355,12 @@ function construirReciboHTML({ alq, cobro, inquilino, propiedad, propietario }) 
         <td>${esc(propiedad?.direccion || '—')}</td>
         <td class="right">${fmtMoneda(montoMora)}</td>
       </tr>` : ''}
+      ${(cobro.itemsExtra || []).map(it => `
+      <tr>
+        <td>${esc(it.concepto)}</td>
+        <td>${esc(propiedad?.direccion || '—')}</td>
+        <td class="right">${fmtMoneda(it.monto)}</td>
+      </tr>`).join('')}
       </tbody>
     </table>
 

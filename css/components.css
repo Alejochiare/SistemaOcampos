@@ -147,6 +147,29 @@ select.field { cursor: pointer; appearance: none; padding-right: 2rem;
 }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
 
+/* ---------- Selector de propietario(s) (form de propiedad) ---------- */
+.owner-row { display: flex; gap: .6rem; align-items: center; margin-bottom: .5rem; }
+.owner-avatar { flex-shrink: 0; background: linear-gradient(135deg, var(--brand-500), var(--brand-800)); }
+.owner-avatar-empty { background: var(--surface-3); color: var(--text-faint); }
+.owner-avatar-empty svg { width: 16px; height: 16px; }
+.owner-row-field { flex: 1; position: relative; }
+.owner-row-field .prop-own-search {
+  width: 100%; height: 42px; padding: 0 .85rem; border-radius: var(--r-sm); border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font-size: .875rem; transition: all var(--transition);
+}
+.owner-row-field .prop-own-search:focus {
+  outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); background: var(--surface);
+}
+.owner-row-field .prop-own-drop {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-md);
+  z-index: 50; max-height: 200px; overflow-y: auto;
+}
+.owner-row-drop-item { padding: .55rem .9rem; cursor: pointer; font-size: .875rem; border-bottom: 1px solid var(--border); transition: background var(--transition); }
+.owner-row-drop-item:last-child { border-bottom: none; }
+.owner-row-drop-item:hover { background: var(--surface-2); }
+.owner-row .btn-del-own { width: 42px; padding: 0; }
+
 /* ---------- RESPONSIVE — pantallas chicas ---------- */
 @media (max-width: 480px) {
   .modal-overlay { padding: 0; align-items: flex-end; }

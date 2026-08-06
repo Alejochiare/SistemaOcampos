@@ -4,7 +4,7 @@
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
-import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen, compartirArchivoPorWhatsApp } from '../lib.js';
+import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen, compartirArchivoPorWhatsApp, iniciales } from '../lib.js';
 import { imprimirRecibo, imprimirReciboAdelanto, generarPDFReciboAdelanto, imprimirEntregaContrato, generarPDFEntregaContrato } from '../imprimir.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
@@ -354,22 +354,26 @@ export function openSeguimientoForm(clienteId, onDone) {
  *  El % de cada uno, quién paga comisión y a qué % se configuran al liquidar, no acá —
  *  por eso cada fila sólo administra `propietarioId`, preservando el resto de los campos
  *  (porcentaje, pagaComision, comisionPct) que ya pudieran venir guardados en la propiedad. */
-function montarPropietarios(ctx, iniciales, propietariosList) {
+function montarPropietarios(ctx, propietariosIniciales, propietariosList) {
   const ov = ctx.overlay;
-  let filas = (iniciales || []).map(o => ({ ...o }));
+  let filas = (propietariosIniciales || []).map(o => ({ ...o }));
   if (!filas.length) filas = [{ propietarioId: '' }];
 
   const render = () => {
     const blk = ov.querySelector('#propietariosBlk');
     blk.innerHTML = filas.map((f, i) => {
       const p = propietariosList.find(x => x.id === f.propietarioId);
+      const avatarHTML = p
+        ? `<div class="avatar avatar-sm owner-avatar">${iniciales(p.nombre)}</div>`
+        : `<div class="avatar avatar-sm owner-avatar owner-avatar-empty">${icon('users')}</div>`;
       return `
-      <div style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.5rem" data-prop-idx="${i}">
-        <div style="flex:1;position:relative">
-          <input class="prop-own-search" autocomplete="off" placeholder="Escribí el nombre..." value="${esc(p?.nombre || '')}" style="width:100%">
-          <div class="prop-own-drop" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md);z-index:50;max-height:200px;overflow-y:auto"></div>
+      <div class="owner-row" data-prop-idx="${i}">
+        ${avatarHTML}
+        <div class="owner-row-field">
+          <input class="prop-own-search" autocomplete="off" placeholder="Escribí el nombre del propietario..." value="${esc(p?.nombre || '')}">
+          <div class="prop-own-drop" style="display:none"></div>
         </div>
-        ${filas.length > 1 ? `<button type="button" class="btn btn-xs btn-ghost btn-del-own" style="color:var(--danger);flex-shrink:0">${icon('trash')}</button>` : ''}
+        ${filas.length > 1 ? `<button type="button" class="btn btn-xs btn-ghost btn-del-own" title="Quitar" style="color:var(--danger);flex-shrink:0">${icon('trash')}</button>` : ''}
       </div>`;
     }).join('');
 
@@ -382,15 +386,14 @@ function montarPropietarios(ctx, iniciales, propietariosList) {
         const matches = propietariosList.filter(p => p.nombre.toLowerCase().includes(query)).slice(0, 8);
         if (!matches.length || !query) { drop.style.display = 'none'; return; }
         drop.innerHTML = matches.map(p => `
-          <div data-id="${p.id}" style="padding:.55rem .9rem;cursor:pointer;font-size:.875rem;border-bottom:1px solid var(--border)">
+          <div data-id="${p.id}" class="owner-row-drop-item">
             ${esc(p.nombre)}${p.telefono ? `<span style="color:var(--text-soft);font-size:.75rem"> · ${esc(p.telefono)}</span>` : ''}
           </div>`).join('');
         drop.style.display = 'block';
         drop.querySelectorAll('[data-id]').forEach(el => {
           el.addEventListener('mousedown', () => {
             filas[i].propietarioId = el.dataset.id;
-            inp.value = propietariosList.find(p => p.id === el.dataset.id)?.nombre || '';
-            drop.style.display = 'none';
+            render();
           });
         });
       };
@@ -1194,6 +1197,15 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           </div>
         </div>
 
+        <!-- Otros conceptos (gastos que se cobran junto con el alquiler: luz, gas, reparaciones, etc.) -->
+        <div style="margin-bottom:1.1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+            <label style="font-size:.8rem;font-weight:600;color:var(--text-soft);text-transform:uppercase;letter-spacing:.05em">Otros conceptos (opcional)</label>
+            <button type="button" id="btnAddItemExtra" class="btn btn-xs btn-ghost">${icon('plus')} Agregar ítem</button>
+          </div>
+          <div id="itemsExtraBlk"></div>
+        </div>
+
         <!-- Forma de pago (una o varias líneas: efectivo + transferencia, etc.) -->
         <div style="margin-bottom:1.1rem">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
@@ -1216,6 +1228,36 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       let pagos = [{ metodoPago: 'Efectivo', monto: montoSugerido || '', referencia: '' }];
       let moraActual = { dias: 0, monto: 0, pct: pctMora };
       let moraMontoManual = false;
+      let itemsExtra = (cobroExistente?.itemsExtra || []).map(it => ({ ...it }));
+      const totalItemsExtra = () => itemsExtra.reduce((s, it) => s + (Number(it.monto) || 0), 0);
+
+      const ITEMS_EXTRA_SUGERIDOS = ['Gasto de luz', 'Gasto de gas', 'Expensas', 'Reparación', 'Otro'];
+      const renderItemsExtra = () => {
+        const blk = ov.querySelector('#itemsExtraBlk');
+        blk.innerHTML = `
+          <datalist id="itemsExtraSugeridos">${ITEMS_EXTRA_SUGERIDOS.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+          ${itemsExtra.map((it, i) => `
+          <div style="display:flex;gap:.5rem;align-items:flex-end;margin-bottom:.5rem;flex-wrap:wrap" data-item-row="${i}">
+            <div class="form-group" style="margin:0;flex:1;min-width:180px">
+              <label style="font-size:.72rem">Concepto</label>
+              <input type="text" data-f="concepto" list="itemsExtraSugeridos" value="${esc(it.concepto || '')}" placeholder="Ej: Gasto de luz">
+            </div>
+            <div class="form-group" style="margin:0;width:130px">
+              <label style="font-size:.72rem">Monto $</label>
+              <input type="text" inputmode="numeric" class="input-monto" data-f="monto" value="${fmtMontoInput(it.monto)}">
+            </div>
+            <button type="button" class="btn btn-xs btn-ghost" data-del-item="${i}" style="color:var(--danger)">✕</button>
+          </div>`).join('')}`;
+
+        blk.querySelectorAll('[data-item-row]').forEach(row => {
+          const i = Number(row.dataset.itemRow);
+          row.querySelector('[data-f="concepto"]').addEventListener('input', e => { itemsExtra[i].concepto = e.target.value; });
+          row.querySelector('[data-f="monto"]').addEventListener('input', e => { itemsExtra[i].monto = valorMonto(e.target.value); actualizarMora(); });
+        });
+        blk.querySelectorAll('[data-del-item]').forEach(btn => {
+          btn.addEventListener('click', () => { itemsExtra.splice(Number(btn.dataset.delItem), 1); renderItemsExtra(); actualizarMora(); });
+        });
+      };
 
       const blkMora = ov.querySelector('#moraBlk');
       const detalleMora = ov.querySelector('#moraDetalle');
@@ -1254,15 +1296,15 @@ export function openCobroForm(alq, onDone, prefill = {}) {
         } else {
           blkMora.style.display = 'none';
         }
-        // Con una sola forma de pago, se mantiene sincronizada con el total (alquiler + mora)
-        if (pagos.length === 1) { pagos[0].monto = rentaBase + montoFinal; renderPagos(); }
+        // Con una sola forma de pago, se mantiene sincronizada con el total (alquiler + mora + otros conceptos)
+        if (pagos.length === 1) { pagos[0].monto = rentaBase + montoFinal + totalItemsExtra(); renderPagos(); }
         else actualizarResumen();
       };
 
       const actualizarResumen = () => {
         const el = ov.querySelector('#pagosResumen');
         if (!el) return;
-        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0);
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0) + totalItemsExtra();
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         if (pagos.length > 1) {
           const dif = Math.round((total - asignado) * 100) / 100;
@@ -1309,7 +1351,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
       };
 
       ov.querySelector('#btnAddPago').addEventListener('click', () => {
-        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0);
+        const total = valorMonto(ov.querySelector('#cobroForm').monto.value) + (moraActual.monto || 0) + totalItemsExtra();
         const asignado = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
         const restante = Math.max(0, total - asignado);
         const usados = pagos.map(p => p.metodoPago);
@@ -1318,12 +1360,18 @@ export function openCobroForm(alq, onDone, prefill = {}) {
         renderPagos();
       });
 
+      ov.querySelector('#btnAddItemExtra').addEventListener('click', () => {
+        itemsExtra.push({ concepto: '', monto: '' });
+        renderItemsExtra();
+      });
+
       $('#cobroForm', ov).monto.addEventListener('input', actualizarMora);
       $('#cobroForm', ov).fechaPago.addEventListener('change', actualizarMora);
       $('#cobroForm', ov).mes.addEventListener('change', actualizarMora);
       inputMoraPct.addEventListener('input', actualizarMora);
       inputMoraMonto.addEventListener('input', () => { moraMontoManual = true; actualizarMora(); });
 
+      renderItemsExtra();
       renderPagos();
       actualizarMora();
 
@@ -1352,11 +1400,14 @@ export function openCobroForm(alq, onDone, prefill = {}) {
         if (!pagosValidos.length) { toast('Indicá el monto de al menos una forma de pago', { tipo: 'warning' }); return; }
 
         const rentaBase = f.monto.value ? valorMonto(f.monto.value) : 0;
-        const totalConMora = rentaBase + (moraActual.monto || 0);
+        const itemsValidos = itemsExtra
+          .filter(it => Number(it.monto) > 0)
+          .map(it => ({ concepto: (it.concepto || '').trim() || 'Otro', monto: Number(it.monto) }));
+        const totalConMora = rentaBase + (moraActual.monto || 0) + itemsValidos.reduce((s, it) => s + it.monto, 0);
         if (pagosValidos.length > 1) {
           const suma = pagosValidos.reduce((s, p) => s + p.monto, 0);
           if (Math.round(suma * 100) !== Math.round(totalConMora * 100)) {
-            toast('La suma de las formas de pago no coincide con el monto total (alquiler + mora)', { tipo: 'warning' });
+            toast('La suma de las formas de pago no coincide con el monto total (alquiler + mora + otros conceptos)', { tipo: 'warning' });
             return;
           }
         }
@@ -1398,6 +1449,10 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           cobro.montoMora = moraActual.monto;
         }
 
+        const itemsExtraPrevios = yaVeniaPagado ? (cobroExistente.itemsExtra || []) : [];
+        const itemsExtraFinal = [...itemsExtraPrevios, ...itemsValidos];
+        if (itemsExtraFinal.length) cobro.itemsExtra = itemsExtraFinal;
+
         if (blkComision.style.display !== 'none' && ov.querySelector('#chkComisionInicial').checked) {
           const montoComision = valorMonto(ov.querySelector('#comisionInicialMonto').value);
           if (montoComision > 0) cobro.comisionInicialMonto = montoComision;
@@ -1428,7 +1483,7 @@ export function openCobroForm(alq, onDone, prefill = {}) {
           // mes, que ya se recibió y se documentó en el recibo del abono previo).
           imprimirRecibo({
             alq,
-            cobro: { ...cobro, monto: totalConMora, montoAlquiler: rentaBase, saldoPendiente: 0, completaParcial: true },
+            cobro: { ...cobro, monto: totalConMora, montoAlquiler: rentaBase, saldoPendiente: 0, completaParcial: true, itemsExtra: itemsValidos },
             inquilino: getState().clientes.find(c => c.id === alq.inquilinoId),
             propiedad: getState().propiedades.find(p => p.id === alq.propiedadId),
             propietario: getState().propietarios.find(p => p.id === alq.propietarioId),

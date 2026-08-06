@@ -220,6 +220,26 @@ export const sel = {
   alquileresActivos() {
     return state.alquileres.filter(a => !['rescindido', 'renovado'].includes(a.estado) && sel.diasAlVencimiento(a) >= 0);
   },
+  /** Total a cobrar este mes (todos los contratos vigentes en el mes actual) vs. lo ya
+   *  cobrado, agrupado por moneda (para no mezclar ARS con USD en una misma barra). */
+  resumenCobrosMes() {
+    const hoy = new Date();
+    const mesKey = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    const porMoneda = {};
+    state.alquileres.forEach(alq => {
+      if (['rescindido', 'renovado'].includes(alq.estado)) return;
+      if (!alq.fechaInicio || alq.fechaInicio.slice(0, 7) > mesKey) return;
+      if (alq.fechaFin && alq.fechaFin.slice(0, 7) < mesKey) return;
+      const cobro = (alq.cobros || []).find(c => c.mes === mesKey);
+      const corresponde = cobro?.montoEsperado ?? cobro?.monto ?? (alq.montoActual ?? alq.montoInicial ?? 0);
+      const cobrado = cobro?.pagado ? Math.max(0, corresponde - (cobro.saldoPendiente || 0)) : 0;
+      const moneda = alq.moneda || 'ARS';
+      if (!porMoneda[moneda]) porMoneda[moneda] = { moneda, corresponde: 0, cobrado: 0 };
+      porMoneda[moneda].corresponde += corresponde;
+      porMoneda[moneda].cobrado += cobrado;
+    });
+    return Object.values(porMoneda).sort((a, b) => b.corresponde - a.corresponde);
+  },
   proxVencimientos() {
     return state.alquileres
       .filter(a => !['rescindido', 'renovado'].includes(a.estado))

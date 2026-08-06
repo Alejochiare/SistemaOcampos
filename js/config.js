@@ -10,7 +10,7 @@ export const TIPOS_CLIENTE = [
 ];
 
 /* Tipos de propiedad */
-export const TIPOS_PROPIEDAD = ['Departamento','Casa','PH','Local comercial','Terreno','Oficina','Cochera','Campo'];
+export const TIPOS_PROPIEDAD = ['Departamento','Casa','PH','Local comercial','Terreno','Oficina','Cochera','Campo','Hotel'];
 
 /* Tipos de operación */
 export const TIPOS_OPERACION = ['Alquiler','Venta','Alquiler temporario'];

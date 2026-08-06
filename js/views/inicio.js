@@ -35,6 +35,7 @@ function pintarInicio(el) {
   const proxVenc    = sel.proxVencimientos().slice(0, 5);
   const eventosHoy  = sel.eventosHoy();
   const eventosPrx  = sel.eventosPendientes().slice(0, 6);
+  const resumenCobrosMes = sel.resumenCobrosMes();
 
   // Cobros vencidos (mes actual o anteriores, cobrados o nunca registrados)
   const cobrosImpagos = alquileres
@@ -84,6 +85,7 @@ function pintarInicio(el) {
       ${kpi('key',      'Alquileres activos', k.alquileresActivos, 'alquileres', 'var(--info-soft)',    'var(--info)')}
       ${kpi('home',      'Propiedades libres', propsDisponibles,    'propiedades','var(--success-soft)', 'var(--success)')}
       ${kpi('calendar', 'Eventos hoy',        k.eventosHoy,        'agenda',     'var(--warning-soft)', 'var(--warning)')}
+      ${kpiCobrosMes(resumenCobrosMes, mesLabel(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`))}
     </div>
 
     <div class="two-col-grid">
@@ -251,6 +253,26 @@ function kpi(ico, label, val, ruta, accent = 'var(--brand-100)', accentColor = '
         <span class="kpi-icon">${icon(ico)}</span>
       </div>
       <div class="kpi-value">${val}</div>
+    </div>`;
+}
+
+function kpiCobrosMes(resumen, mesTxt) {
+  const filas = resumen.length ? resumen : [{ moneda: 'ARS', corresponde: 0, cobrado: 0 }];
+  return `
+    <div class="kpi" data-ruta="alquileres" style="cursor:pointer;--kpi-accent:var(--success);--kpi-accent-soft:var(--success-soft)">
+      <div class="kpi-top">
+        <span class="kpi-label">Cobros de ${mesTxt}</span>
+        <span class="kpi-icon">${icon('wallet')}</span>
+      </div>
+      ${filas.map(r => {
+        const pct = r.corresponde > 0 ? Math.min(100, Math.round(r.cobrado / r.corresponde * 100)) : 0;
+        return `
+          <div style="margin-top:.15rem">
+            <div class="kpi-value" style="font-size:1.3rem">${fmtMoneda(r.cobrado, r.moneda)}</div>
+            <div class="text-xs text-soft" style="margin:.15rem 0 .4rem">de ${fmtMoneda(r.corresponde, r.moneda)}</div>
+            <div class="progress"><i style="width:${pct}%;background:var(--success)"></i></div>
+          </div>`;
+      }).join('')}
     </div>`;
 }
 
