@@ -146,7 +146,13 @@ export function descargar(contenido, nombre, tipo = 'text/plain') {
 
 /** Comparte un archivo (ej. PDF de un recibo) por WhatsApp usando la Web Share API cuando está
  *  disponible (adjunta el archivo real); si no, descarga el archivo y abre el chat de WhatsApp
- *  con el texto como respaldo, para que se pueda adjuntar a mano. */
+ *  con el texto como respaldo, para que se pueda adjuntar a mano.
+ *  Devuelve 'shared' (se adjuntó solo, ej. celular con WhatsApp instalado), 'fallback'
+ *  (se descargó el PDF y se abrió el chat, pero hay que adjuntarlo a mano — típico en
+ *  desktop, donde el navegador no puede adjuntar archivos directo al chat) o `false`
+ *  si no se pudo hacer nada (sin archivo o sin número válido). El llamador debe avisarle
+ *  al usuario cuál de los dos pasó, para que no crea que se mandó el PDF cuando en
+ *  realidad solo se abrió el chat con el texto. */
 export async function compartirArchivoPorWhatsApp({ numero, texto = '', archivo, nombreArchivo = 'documento.pdf', tipo = 'application/pdf' }) {
   if (!archivo) return false;
 
@@ -157,7 +163,7 @@ export async function compartirArchivoPorWhatsApp({ numero, texto = '', archivo,
     if (typeof navigator !== 'undefined' && navigator.share) {
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], text: mensaje, title: 'Documento compartido' });
-        return true;
+        return 'shared';
       }
     }
   } catch (err) {
@@ -172,11 +178,21 @@ export async function compartirArchivoPorWhatsApp({ numero, texto = '', archivo,
       console.warn('No se pudo descargar el archivo automáticamente:', e);
     }
     window.open(link, '_blank', 'noopener,noreferrer');
-    return false;
+    return 'fallback';
   }
 
   descargar(archivo, nombreArchivo, tipo);
-  return false;
+  return 'fallback';
+}
+
+/** Arma el toast a mostrar según lo que devolvió compartirArchivoPorWhatsApp, para que
+ *  quien envía sepa si el PDF se adjuntó solo o si hay que adjuntarlo a mano en el chat
+ *  que se abrió (fallback de desktop) — sin este aviso es fácil creer que ya se mandó el
+ *  recibo cuando en realidad el contacto solo recibió el mensaje de texto. */
+export function avisoEnvioWhatsApp(resultado, cosa = 'el documento') {
+  if (resultado === 'shared') return { msg: 'Enviado por WhatsApp', tipo: 'success' };
+  if (resultado === 'fallback') return { msg: `Se descargó ${cosa} — adjuntalo en el chat de WhatsApp que se abrió para enviarlo`, tipo: 'warning', duracion: 7000 };
+  return { msg: 'No se pudo compartir por WhatsApp', tipo: 'danger' };
 }
 
 export function exportarCSV(filas, nombre = 'export.csv') {

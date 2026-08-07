@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, actions, subscribe, sel } from '../store.js';
 import { icon } from '../config.js';
-import { esc, fmtMontoInput, valorMonto, debounce, compartirArchivoPorWhatsApp } from '../lib.js';
+import { esc, fmtMontoInput, valorMonto, debounce, compartirArchivoPorWhatsApp, avisoEnvioWhatsApp } from '../lib.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { imprimirLiquidacion, generarPDFLiquidacion } from '../imprimir.js';
@@ -701,7 +701,9 @@ async function enviarWA(id, soloPropietarioId = null) {
   const texto = `Hola${datos.own?.nombre ? ' ' + datos.own.nombre : ''}! Te comparto la liquidación de ${datos.prop?.direccion || 'tu propiedad'}.`;
   try {
     const blob = await generarPDFLiquidacion(datos.params, 'liquidacion.pdf');
-    await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+    const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+    const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'la liquidación');
+    toast(msg, opts);
   } catch (err) {
     console.error('Error generando o compartiendo la liquidación:', err);
     toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
@@ -985,7 +987,9 @@ export function abrirFormLiquidacionGrupal(grupo, onDone) {
             try {
               const texto = `Hola${own?.nombre ? ' ' + own.nombre : ''}! Te comparto la liquidación de ${mesesLabelStr}.`;
               const blob = await generarPDFLiquidacion(paramsLiq, 'liquidacion.pdf');
-              await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+              const resultado = await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+              const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'la liquidación');
+              toast(msg, opts);
             } catch (err) {
               console.error('Error generando o compartiendo la liquidación:', err);
               toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
@@ -1624,7 +1628,9 @@ export function abrirFormLiquidacion(pre, onDone) {
               try {
                 const texto = `Hola${own?.nombre ? ' ' + own.nombre : ''}! Te comparto la liquidación de ${prop?.direccion || 'la propiedad'}.`;
                 const blob = await generarPDFLiquidacion(paramsLiq, 'liquidacion.pdf');
-                await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+                const resultado = await compartirArchivoPorWhatsApp({ numero: own.telefono, texto, archivo: blob, nombreArchivo: 'liquidacion.pdf' });
+                const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'la liquidación');
+                toast(msg, opts);
               } catch (err) {
                 console.error('Error generando o compartiendo la liquidación:', err);
                 toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });

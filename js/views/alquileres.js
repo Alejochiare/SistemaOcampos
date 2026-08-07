@@ -3,7 +3,7 @@
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, CONTRATO_ESTADOS, MONEDAS, DIA_LIMITE_PAGO } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal, debounce, waLink, compartirArchivoPorWhatsApp } from '../lib.js';
+import { esc, fmtMoneda, fmtFechaCorta, garantesDeAlquiler, valorMonto, fmtMontoInput, parseFechaLocal, debounce, waLink, compartirArchivoPorWhatsApp, avisoEnvioWhatsApp } from '../lib.js';
 import { navegar } from '../router.js';
 import { openAlquilerForm, openCobroForm, openRenovacionForm, openAdelantoForm, openEntregaContratoForm } from './forms.js';
 import { openModal } from '../components/modal.js';
@@ -506,7 +506,9 @@ function pintarDetalle(el, id) {
       const texto = textoReciboWA(a, cobro, prop);
       try {
         const blob = await generarPDFRecibo({ ...datosImpresion(), cobro }, `recibo-${cobro.mes || 'documento'}.pdf`);
-        await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: `recibo-${cobro.mes || 'documento'}.pdf` });
+        const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: `recibo-${cobro.mes || 'documento'}.pdf` });
+        const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'el recibo');
+        toast(msg, opts);
       } catch (err) {
         console.error('Error generando o compartiendo PDF:', err);
         window.open(waLink(tel, texto), '_blank');
@@ -707,7 +709,9 @@ function abrirCancelacionModal(a) {
           if (!itemsFactura.length) { toast('Contrato cancelado — no había deuda para enviar'); return; }
           const texto = `Hola${inq?.nombre ? ' ' + inq.nombre : ''}! Te comparto el detalle de deuda pendiente al cancelar el contrato de ${prop?.direccion || 'la propiedad'}.`;
           const blob = await generarPDFFacturaDeuda({ alq: a, inquilino: inq, propiedad: prop, propietario: own, cobrosPendientes: itemsFactura }, 'deuda.pdf');
-          await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'deuda.pdf' });
+          const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'deuda.pdf' });
+          const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'el detalle de deuda');
+          toast(msg, opts);
         } catch (err) {
           console.error(err);
           toast(`Error al cancelar el contrato: ${err.message || err}`, { tipo: 'danger' });

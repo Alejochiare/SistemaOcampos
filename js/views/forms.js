@@ -4,7 +4,7 @@
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
 import { actions, getState, sel as selStore } from '../store.js';
-import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen, compartirArchivoPorWhatsApp, iniciales } from '../lib.js';
+import { $, esc, garantesDeAlquiler, fmtMontoInput, valorMonto, comprimirImagen, compartirArchivoPorWhatsApp, avisoEnvioWhatsApp, iniciales } from '../lib.js';
 import { imprimirRecibo, imprimirReciboAdelanto, generarPDFReciboAdelanto, imprimirEntregaContrato, generarPDFEntregaContrato } from '../imprimir.js';
 import {
   TIPOS_CLIENTE, TIPOS_PROPIEDAD, TIPOS_OPERACION, MONEDAS,
@@ -1076,9 +1076,10 @@ export function openEntregaContratoForm(alq, onDone) {
         const texto = `Hola! Te comparto la constancia de entrega del ejemplar del contrato de ${propiedad?.direccion || 'la propiedad'}.`;
         try {
           const blob = await generarPDFEntregaContrato({ alq, inquilino, propiedad, propietario, destinatarios, fecha, nota }, 'entrega-contrato.pdf');
-          await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'entrega-contrato.pdf' });
+          const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'entrega-contrato.pdf' });
           await actions.registrarEntregaContrato(alq.id, { fecha, destinatarios, nota });
-          toast('Constancia enviada'); ctx.close(); onDone?.();
+          const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'la constancia');
+          toast(msg, opts); ctx.close(); onDone?.();
         } catch (err) {
           console.error('Error generando o compartiendo la constancia:', err);
           toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
@@ -1637,7 +1638,9 @@ export function openAdelantoForm(alq, mesInicial, onDone) {
         const texto = `Hola${datos.inquilino?.nombre ? ' ' + datos.inquilino.nombre : ''}! Te comparto el recibo de adelanto de alquiler de ${datos.propiedad?.direccion || 'la propiedad'}.`;
         try {
           const blob = await generarPDFReciboAdelanto(datos, 'recibo-adelanto.pdf');
-          await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo-adelanto.pdf' });
+          const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo-adelanto.pdf' });
+          const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'el recibo');
+          toast(msg, opts);
         } catch (err) {
           console.error('Error generando o compartiendo el recibo de adelanto:', err);
           toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });

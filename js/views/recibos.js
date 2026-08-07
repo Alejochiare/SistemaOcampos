@@ -5,7 +5,7 @@
    ============================================================ */
 import { getState } from '../store.js';
 import { icon, MONEDAS } from '../config.js';
-import { esc, valorMonto, waLink, compartirArchivoPorWhatsApp } from '../lib.js';
+import { esc, valorMonto, waLink, compartirArchivoPorWhatsApp, avisoEnvioWhatsApp } from '../lib.js';
 import { imprimirReciboGeneral, generarPDFReciboGeneral } from '../imprimir.js';
 import { toast } from '../components/toast.js';
 
@@ -163,8 +163,9 @@ function pintar(el) {
     const texto = `Hola${datos.persona.nombre ? ' ' + datos.persona.nombre : ''}! Te comparto el recibo de "${datos.concepto}".`;
     try {
       const blob = await generarPDFReciboGeneral(datos, 'recibo.pdf');
-      await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo.pdf' });
-      toast('Recibo enviado');
+      const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: 'recibo.pdf' });
+      const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'el recibo');
+      toast(msg, opts);
     } catch (err) {
       console.error('Error generando o compartiendo el recibo:', err);
       toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });

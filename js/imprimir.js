@@ -1050,15 +1050,24 @@ export function generarPDFBlobDesdeHTML(cuerpoHTML, filename = 'documento.pdf') 
     const style = document.createElement('style');
     style.textContent = CSS_PRINT_SCOPED;
 
+    // El nodo que se le pasa a html2canvas (.from(cont)) NO puede tener "position" propio
+    // (ni absolute ni fixed): comprobado que en ese caso captura un área vacía y el PDF sale
+    // en blanco sin ningún error, sea cual sea el offset o el renderer usado. Por eso "cont"
+    // queda en el flujo normal del documento (sin position), y es el WRAPPER que lo contiene
+    // el que se posiciona fuera de pantalla — un ancestro con position sí es inofensivo.
     const cont = document.createElement('div');
     cont.id = 'pdfExportRoot';
-    cont.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;z-index:-1';
+    cont.style.cssText = 'width:210mm';
     cont.innerHTML = `<div class="pagina">${cuerpoHTML}</div>`;
 
-    const limpiar = () => { cont.remove(); style.remove(); };
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:absolute;left:-10000px;top:0;z-index:-1';
+    wrap.appendChild(cont);
+
+    const limpiar = () => { wrap.remove(); style.remove(); };
 
     document.head.appendChild(style);
-    document.body.appendChild(cont);
+    document.body.appendChild(wrap);
 
     setTimeout(() => {
       html2pdf()

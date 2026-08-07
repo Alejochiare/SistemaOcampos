@@ -6,7 +6,7 @@
    ============================================================ */
 import { getState, sel, actions, subscribe } from '../store.js';
 import { icon, PROP_ESTADOS, ESTADOS_DOCUMENTO, TIPOS_DOCUMENTO_VENTA, TIPOS_CONTACTO_INTERESADO } from '../config.js';
-import { esc, fmtMoneda, fmtFechaCorta, debounce, waLink, compartirArchivoPorWhatsApp } from '../lib.js';
+import { esc, fmtMoneda, fmtFechaCorta, debounce, waLink, compartirArchivoPorWhatsApp, avisoEnvioWhatsApp } from '../lib.js';
 import { navegar } from '../router.js';
 import { openModal } from '../components/modal.js';
 import { toast } from '../components/toast.js';
@@ -643,7 +643,9 @@ function pintarPropiedadVentaDetalle(el, id) {
       const { desde, hasta } = periodoInforme();
       const stats = computarStatsInforme(p, desde, hasta);
       const blob = await generarPDFInformeCaptacion({ captacion: p, periodoDesde: desde, periodoHasta: hasta, stats });
-      await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: `informe-${p.direccion || 'propiedad'}.pdf` });
+      const resultado = await compartirArchivoPorWhatsApp({ numero: tel, texto, archivo: blob, nombreArchivo: `informe-${p.direccion || 'propiedad'}.pdf` });
+      const { msg, ...opts } = avisoEnvioWhatsApp(resultado, 'el informe');
+      toast(msg, opts);
     } catch (err) {
       console.error(err);
       toast('No se pudo generar el PDF para compartir por WhatsApp', { tipo: 'danger' });
