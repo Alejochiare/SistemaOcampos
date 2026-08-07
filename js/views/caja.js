@@ -51,23 +51,35 @@ export default async function caja(root) {
 function pintarCaja(el) {
   const { caja } = getState();
   const hoy = new Date().toISOString().slice(0,10);
-  const diaAbierto = caja.find(d => d.fecha === hoy && !d.cerrado);
-  const historial  = caja.filter(d => d.cerrado).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  const diaHoy    = caja.find(d => d.fecha === hoy);
+  const historial = caja.filter(d => d.fecha !== hoy).sort((a,b) => b.fecha.localeCompare(a.fecha));
+
+  const todosMovs = caja.flatMap(d => d.movimientos || []);
+  const ingTotal = sumarTipo(todosMovs, 'ingreso');
+  const egrTotal = sumarTipo(todosMovs, 'egreso');
+  const salTotal = ingTotal - egrTotal;
 
   el.innerHTML = `
     <div class="view-head">
       <div>
         <h1 class="view-title">${icon('wallet')} Control de caja</h1>
-        <p class="view-sub">${diaAbierto ? 'Caja abierta · ' + fmtFechaCorta(hoy) : 'Caja cerrada'}</p>
+        <p class="view-sub">Registro permanente de ingresos y egresos</p>
       </div>
     </div>
 
-    ${diaAbierto ? renderDiaAbierto(diaAbierto) : ''}
+    <!-- Saldo acumulado de todo el registro -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.9rem;margin-bottom:1.25rem">
+      ${kpi('Saldo total', salTotal, salTotal>=0?'var(--success)':'var(--danger)')}
+      ${kpi('Ingresos totales', ingTotal, 'var(--success)')}
+      ${kpi('Egresos totales', egrTotal, 'var(--danger)')}
+    </div>
+
+    ${renderDiaHoy(diaHoy)}
 
     ${historial.length ? `
     <div class="card" style="margin-top:1.5rem">
       <div class="card-head">
-        <h3>${icon('clock')} Historial de días</h3>
+        <h3>${icon('clock')} Historial</h3>
         <span class="badge badge-neutral">${historial.length} día${historial.length!==1?'s':''}</span>
       </div>
       <div style="padding:0">
@@ -75,10 +87,9 @@ function pintarCaja(el) {
       </div>
     </div>` : ''}`;
 
-  /* eventos caja abierta */
-  el.querySelector('#btnIngreso')?.addEventListener('click', () => openMovForm(diaAbierto.id, 'ingreso'));
-  el.querySelector('#btnEgreso')?.addEventListener('click',  () => openMovForm(diaAbierto.id, 'egreso'));
-  el.querySelector('#btnCerrar')?.addEventListener('click',  () => confirmarCierre(diaAbierto));
+  /* eventos día de hoy */
+  el.querySelector('#btnIngreso')?.addEventListener('click', () => openMovForm(diaHoy.id, 'ingreso'));
+  el.querySelector('#btnEgreso')?.addEventListener('click',  () => openMovForm(diaHoy.id, 'egreso'));
 
   el.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -97,8 +108,8 @@ function pintarCaja(el) {
   });
 }
 
-/* ── Día abierto ─────────────────────────────────────────── */
-function renderDiaAbierto(dia) {
+/* ── Hoy ──────────────────────────────────────────────────── */
+function renderDiaHoy(dia) {
   const movs = [...dia.movimientos].reverse();
   const ing  = sumarTipo(dia.movimientos, 'ingreso');
   const egr  = sumarTipo(dia.movimientos, 'egreso');
@@ -111,11 +122,11 @@ function renderDiaAbierto(dia) {
   }).filter(Boolean);
 
   return `
-  <!-- KPIs -->
+  <!-- KPIs de hoy -->
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.9rem;margin-bottom:1.25rem">
-    ${kpi('Saldo del día', sal, sal>=0?'var(--success)':'var(--danger)')}
-    ${kpi('Ingresos', ing, 'var(--success)')}
-    ${kpi('Egresos', egr, 'var(--danger)')}
+    ${kpi('Saldo de hoy', sal, sal>=0?'var(--success)':'var(--danger)')}
+    ${kpi('Ingresos de hoy', ing, 'var(--success)')}
+    ${kpi('Egresos de hoy', egr, 'var(--danger)')}
     ${porMetodo.map(m => kpi(`${m.emoji} ${m.label}`, m.n, m.n>=0?m.color:'var(--danger)')).join('')}
   </div>
 
@@ -126,9 +137,6 @@ function renderDiaAbierto(dia) {
     </button>
     <button class="btn btn-primary" id="btnEgreso" style="background:var(--danger);border-color:var(--danger)">
       ${icon('x')} Registrar egreso
-    </button>
-    <button class="btn btn-ghost" id="btnCerrar" style="margin-left:auto">
-      ${icon('check')} Cerrar el día
     </button>
   </div>
 
@@ -201,6 +209,8 @@ function renderFilaDia(d) {
         <span style="flex:1">${esc(m.concepto)}${m.nota?` <span style="color:var(--text-faint)">· ${esc(m.nota)}</span>`:''}</span>
         <span style="color:var(--text-soft);font-size:.75rem">${mt.label}</span>
         <span style="font-weight:700;color:${es?'var(--success)':'var(--danger)'}">${es?'+':'-'}${moneda(m.monto)}</span>
+        <button class="btn btn-xs btn-ghost" data-del="${m.id}" data-caja="${d.id}"
+          style="flex-shrink:0;color:var(--text-faint)" title="Eliminar">${icon('trash')}</button>
       </div>`;
     }).join('') : '<div style="padding:.5rem;color:var(--text-faint);font-size:.82rem">Sin movimientos</div>'}
   </div>`;
@@ -325,55 +335,3 @@ function openMovForm(cajaId, tipoInicial = 'ingreso') {
   });
 }
 
-/* ── Confirmar cierre del día ─────────────────────────────── */
-function confirmarCierre(dia) {
-  const ing = sumarTipo(dia.movimientos,'ingreso');
-  const egr = sumarTipo(dia.movimientos,'egreso');
-  const sal = ing - egr;
-
-  const filasMet = METODOS.map(m => {
-    const n = sumarMetodo(dia.movimientos,'ingreso',m.id) - sumarMetodo(dia.movimientos,'egreso',m.id);
-    if (!n) return '';
-    return `<div style="display:flex;justify-content:space-between;padding:.35rem 0;border-bottom:1px solid var(--border);font-size:.875rem">
-      <span>${m.emoji} ${m.label}</span>
-      <span style="font-weight:700;color:${n>=0?m.color:'var(--danger)'}">${n<0?'-':''}${moneda(n)}</span>
-    </div>`;
-  }).join('');
-
-  openModal({
-    title: '📋 Cerrar el día',
-    bodyHTML: `
-      <p style="color:var(--text-soft);font-size:.875rem;margin-bottom:1rem">
-        Al cerrar la caja de hoy no se podrán agregar más movimientos para este día.
-        Mañana se abrirá una nueva caja automáticamente.
-      </p>
-      <div style="background:var(--surface-2);border-radius:var(--r-md);padding:1rem;margin-bottom:1rem">
-        <div style="display:flex;justify-content:space-between;margin-bottom:.4rem;font-size:.85rem">
-          <span style="color:var(--text-soft)">Ingresos totales</span>
-          <span style="color:var(--success);font-weight:700">+${moneda(ing)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-bottom:.75rem;font-size:.85rem">
-          <span style="color:var(--text-soft)">Egresos totales</span>
-          <span style="color:var(--danger);font-weight:700">-${moneda(egr)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:1.05rem;font-weight:800;padding-top:.6rem;border-top:2px solid var(--border)">
-          <span>Saldo del día</span>
-          <span style="color:${sal>=0?'var(--success)':'var(--danger)'}">${sal<0?'-':''}${moneda(sal)}</span>
-        </div>
-      </div>
-      ${filasMet ? `<div style="font-size:.75rem;color:var(--text-soft);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.4rem;font-weight:600">Por método</div>${filasMet}` : ''}`,
-
-    footerHTML: `
-      <button class="btn btn-ghost" data-cancel>Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmarCierre">Cerrar el día</button>`,
-
-    onMount({ overlay, close }) {
-      overlay.querySelector('[data-cancel]').addEventListener('click', close);
-      overlay.querySelector('#btnConfirmarCierre').addEventListener('click', async () => {
-        await actions.cerrarCaja(dia.id);
-        await actions.cajaHoy();
-        close();
-      });
-    },
-  });
-}

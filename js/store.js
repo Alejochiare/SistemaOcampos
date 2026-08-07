@@ -89,7 +89,6 @@ export const actions = {
   async cajaHoy()                        { const r = await api.cajaHoy(); await refresh(); return r; },
   async addMovimiento(cajaId, data)      { await api.addMovimiento(cajaId, data); await refresh(); },
   async deleteMovimiento(cajaId, movId)  { await api.deleteMovimiento(cajaId, movId); await refresh(); },
-  async cerrarCaja(cajaId)               { await api.cerrarCaja(cajaId); await refresh(); },
 
   /* Ventas: documentación/comercialización/informes de una propiedad en venta */
   async addDocumentoPropiedad(propId, doc)          { await api.addDocumentoPropiedad(propId, doc); await refresh(); },

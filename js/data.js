@@ -53,9 +53,9 @@ function normalizarMetodoPago(m) {
 function crearMovimientoCaja(db, data) {
   db.caja = db.caja || [];
   const fecha = data.fecha || hoyISO();
-  let dia = db.caja.find(d => d.fecha === fecha && !d.cerrado);
+  let dia = db.caja.find(d => d.fecha === fecha);
   if (!dia) {
-    dia = { id: uid('caj'), fecha, cerrado: false, movimientos: [] };
+    dia = { id: uid('caj'), fecha, movimientos: [] };
     db.caja.unshift(dia);
   }
   const mov = {
@@ -752,14 +752,16 @@ export const api = {
     return delay(true);
   },
 
-  /* ---- CAJA ---- */
-  /** Devuelve o crea la caja del día actual (abierta). */
+  /* ---- CAJA ----
+   * Registro permanente: no existe el concepto de "cerrar" un día — es un
+   * único libro continuo, agrupado por fecha solo para mostrarlo ordenado. */
+  /** Devuelve o crea la caja del día actual. */
   async cajaHoy() {
     _db.caja = _db.caja || [];
     const hoy = new Date().toISOString().slice(0, 10);
-    let dia = _db.caja.find(d => d.fecha === hoy && !d.cerrado);
+    let dia = _db.caja.find(d => d.fecha === hoy);
     if (!dia) {
-      dia = { id: uid('caj'), fecha: hoy, cerrado: false, movimientos: [] };
+      dia = { id: uid('caj'), fecha: hoy, movimientos: [] };
       _db.caja.unshift(dia);
       persist(_db);
     }
@@ -783,11 +785,5 @@ export const api = {
     const dia = _db.caja.find(x => x.id === cajaId);
     if (dia) { dia.movimientos = dia.movimientos.filter(m => m.id !== movId); persist(_db); }
     return delay(true);
-  },
-  async cerrarCaja(cajaId) {
-    _db.caja = _db.caja || [];
-    const dia = _db.caja.find(x => x.id === cajaId);
-    if (dia) { dia.cerrado = true; dia.fechaCierre = new Date().toISOString(); persist(_db); }
-    return delay(dia ? structuredClone(dia) : null);
   },
 };
