@@ -47,14 +47,39 @@ export default async function caja(root) {
   return subscribe(render);
 }
 
+/** IDs de movimientos de caja generados por cobros marcados "No sumar a la caja de hoy"
+ *  (imputarAlMes). Esos cobros SÍ generan su movimiento en la base (lo necesitan las
+ *  liquidaciones y el historial del alquiler), pero el usuario pidió explícitamente que
+ *  no figuren en Control de caja — el movimiento en sí no guarda ese flag, así que hay
+ *  que cruzarlo con el cobro de origen para saber cuáles excluir. */
+function idsMovimientosImputados() {
+  const ids = new Set();
+  (getState().alquileres || []).forEach(a => {
+    (a.cobros || []).forEach(c => {
+      if (!c.imputarAlMes) return;
+      (c.cajaMovimientoIds || []).forEach(id => ids.add(id));
+      if (c.cajaMovimientoId) ids.add(c.cajaMovimientoId);
+    });
+  });
+  return ids;
+}
+
 /* ── Vista principal ─────────────────────────────────────── */
 function pintarCaja(el) {
   const { caja } = getState();
   const hoy = new Date().toISOString().slice(0,10);
-  const diaHoy    = caja.find(d => d.fecha === hoy);
-  const historial = caja.filter(d => d.fecha !== hoy).sort((a,b) => b.fecha.localeCompare(a.fecha));
+  const idsImputados = idsMovimientosImputados();
+  const visible = (m) => !idsImputados.has(m.id);
+  const sinImputados = (d) => ({ ...d, movimientos: (d.movimientos || []).filter(visible) });
 
-  const todosMovs = caja.flatMap(d => d.movimientos || []);
+  const diaHoy    = sinImputados(caja.find(d => d.fecha === hoy));
+  const historial = caja
+    .filter(d => d.fecha !== hoy)
+    .map(sinImputados)
+    .filter(d => d.movimientos.length > 0)
+    .sort((a,b) => b.fecha.localeCompare(a.fecha));
+
+  const todosMovs = caja.flatMap(d => d.movimientos || []).filter(visible);
   const ingTotal = sumarTipo(todosMovs, 'ingreso');
   const egrTotal = sumarTipo(todosMovs, 'egreso');
   const salTotal = ingTotal - egrTotal;
